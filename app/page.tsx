@@ -1,19 +1,19 @@
 "use client";
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import Image from "next/image";
 
 interface StoreData { id: string; name?: string; logo_url?: string; }
-interface ProductData { id: string; name?: string; sell_price?: number; image_url?: string; }
+interface ProductData { id: string; store_id?: string; name: string; sell_price: number; image_url?: string; }
 interface CartItem extends ProductData { qty: number; }
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-// 1. ย้ายฟังก์ชันสร้างเลขบิลออกมาไว้นอก Component เพื่อไม่ให้ผิดกฎ Impure Function
+// สร้างเลขบิลไว้ด้านนอก Component ตามกฎ React
 const generateDocNo = () => {
-  const timestamp = new Date().getTime();
-  return `POS-${timestamp}`;
+  return `POS-${new Date().getTime()}`;
 };
 
 export default function POSPage() {
@@ -26,25 +26,52 @@ export default function POSPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
     async function fetchData() {
       if (!supabase) { 
         console.error("ไม่พบกุญแจเชื่อมต่อ Supabase"); 
-        setIsLoading(false); 
+        if (isMounted) setIsLoading(false); 
         return; 
       }
       try {
-        const { data: storeData } = await supabase.from("stores").select("*").limit(1).single();
-        if (storeData) setStore(storeData);
-        
-        const { data: productData } = await supabase.from("products").select("id, name, sell_price, image_url");
-        if (productData) setProducts(productData);
+        // 1. ดึงข้อมูล User และ Store ID (แบบเดียวกับหน้า ProductsPage)
+        const { data: { user } } = await supabase.auth.getUser();
+        let currentStoreId = null;
+
+        if (user) {
+          const { data: profile } = await supabase.from("profiles").select("store_id").eq("id", user.id).single();
+          if (profile?.store_id) currentStoreId = profile.store_id;
+        }
+
+        // กรณีทดสอบระบบและยังไม่ได้ล็อกอิน ให้ดึงร้านแรกสุดมาใช้ก่อน
+        if (!currentStoreId) {
+          const { data: fallbackStore } = await supabase.from("stores").select("id, name, logo_url").limit(1).single();
+          if (fallbackStore) {
+            currentStoreId = fallbackStore.id;
+            if (isMounted) setStore(fallbackStore);
+          }
+        } else {
+          const { data: myStore } = await supabase.from("stores").select("id, name, logo_url").eq("id", currentStoreId).single();
+          if (myStore && isMounted) setStore(myStore);
+        }
+
+        // 2. ดึงสินค้าเฉพาะร้านค้านี้ และดึงค่าทั้งหมดแบบชัวร์ๆ
+        if (currentStoreId) {
+          const { data: productData } = await supabase
+            .from("products")
+            .select("*")
+            .eq("store_id", currentStoreId);
+          if (productData && isMounted) setProducts(productData);
+        }
+
       } catch (err) { 
         console.error(err); 
       } finally { 
-        setIsLoading(false); 
+        if (isMounted) setIsLoading(false); 
       }
     }
     fetchData();
+    return () => { isMounted = false; };
   }, []);
 
   const addToCart = (product: ProductData) => {
@@ -63,27 +90,33 @@ export default function POSPage() {
     });
   };
 
+  // บังคับใช้ sell_price เท่านั้น
   const totalPrice = cart.reduce((sum, item) => sum + (item.sell_price || 0) * item.qty, 0);
   const totalItems = cart.reduce((sum, item) => sum + item.qty, 0);
 
   const handleCheckout = async () => {
-    if (cart.length === 0 || !supabase) return;
+    if (cart.length === 0 || !supabase || !store?.id) {
+      alert("ไม่สามารถสั่งซื้อได้: ไม่พบสินค้าในตะกร้า หรือ ไม่พบข้อมูลร้านค้า");
+      return;
+    }
     setIsSubmitting(true);
 
     try {
-      // เรียกใช้ฟังก์ชันจากภายนอก Component แทน
       const docNo = generateDocNo();
       
+      // ส่ง store_id ไปด้วย ป้องกัน Error 400 Bad Request
+      const orderPayload = {
+        store_id: store.id,
+        doc_no: docNo,
+        order_source: 'POS',
+        status: 'completed',
+        total_amount: totalPrice,
+        payment_method: 'cash'
+      };
+
       const { data: orderData, error: orderError } = await supabase
         .from("orders")
-        .insert([{ 
-          store_id: store?.id || null,
-          doc_no: docNo,
-          order_source: 'POS',
-          status: 'completed',
-          total_amount: totalPrice,
-          payment_method: 'cash'
-        }])
+        .insert([orderPayload])
         .select()
         .single();
 
@@ -103,10 +136,10 @@ export default function POSPage() {
       setCart([]);
       setIsMobileCartOpen(false);
 
-    // 2. เปลี่ยน any เป็น unknown เพื่อความปลอดภัยสูงสุดของ TypeScript
     } catch (error: unknown) {
       console.error("เกิดข้อผิดพลาดในการบันทึกบิล:", error);
-      const errorMessage = error instanceof Error ? error.message : "กรุณาลองใหม่อีกครั้ง";
+      // ดึงรายละเอียด Error ออกมาให้ชัดเจน
+      const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
       alert("เกิดข้อผิดพลาดในการสั่งซื้อ: " + errorMessage);
     } finally {
       setIsSubmitting(false);
@@ -120,8 +153,9 @@ export default function POSPage() {
       <header className="bg-white shadow-sm px-4 md:px-6 py-4 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center gap-3">
           {store?.logo_url ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img src={store.logo_url} alt="Logo" className="w-12 h-12 rounded-md object-contain" />
+            <div className="w-12 h-12 relative rounded-md overflow-hidden bg-white">
+              <Image src={store.logo_url} alt="Logo" fill className="object-contain" unoptimized />
+            </div>
           ) : (
             <div className="w-12 h-12 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold text-xl">{store?.name ? store.name.charAt(0) : "S"}</div>
           )}
@@ -136,15 +170,14 @@ export default function POSPage() {
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
             {products.map((product) => (
               <div key={product.id} onClick={() => addToCart(product)} className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center cursor-pointer active:scale-95 hover:shadow-md">
-                <div className="w-full aspect-square bg-gray-50 rounded-xl mb-3 flex items-center justify-center overflow-hidden border border-gray-100">
+                <div className="w-full aspect-square bg-gray-50 rounded-xl mb-3 flex items-center justify-center relative overflow-hidden border border-gray-100 p-2">
                   {product.image_url ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={product.image_url} alt="Product" className="w-full h-full object-cover" />
+                    <Image src={product.image_url} alt={product.name} fill className="object-cover" unoptimized />
                   ) : (
-                    "ไม่มีรูป"
+                    <span className="text-gray-400 text-sm">ไม่มีรูป</span>
                   )}
                 </div>
-                <h3 className="font-semibold text-center text-sm md:text-base line-clamp-2 min-h-[2.5rem] w-full">{product.name || "ไม่มีชื่อ"}</h3>
+                <h3 className="font-semibold text-center text-sm md:text-base line-clamp-2 min-h-[2.5rem] w-full">{product.name}</h3>
                 <p className="text-blue-600 font-extrabold mt-1 text-base">฿{(product.sell_price || 0).toLocaleString()}</p>
               </div>
             ))}
