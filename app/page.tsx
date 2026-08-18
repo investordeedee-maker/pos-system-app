@@ -2,13 +2,19 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-interface StoreData { name?: string; logo_url?: string; }
-interface ProductData { id: string | number; name?: string; price?: number; image_url?: string; }
-interface CartItem extends ProductData { quantity: number; }
+interface StoreData { id: string; name?: string; logo_url?: string; }
+interface ProductData { id: string; name?: string; sell_price?: number; image_url?: string; }
+interface CartItem extends ProductData { qty: number; }
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+
+// 1. ย้ายฟังก์ชันสร้างเลขบิลออกมาไว้นอก Component เพื่อไม่ให้ผิดกฎ Impure Function
+const generateDocNo = () => {
+  const timestamp = new Date().getTime();
+  return `POS-${timestamp}`;
+};
 
 export default function POSPage() {
   const [store, setStore] = useState<StoreData | null>(null);
@@ -29,7 +35,8 @@ export default function POSPage() {
       try {
         const { data: storeData } = await supabase.from("stores").select("*").limit(1).single();
         if (storeData) setStore(storeData);
-        const { data: productData } = await supabase.from("products").select("*");
+        
+        const { data: productData } = await supabase.from("products").select("id, name, sell_price, image_url");
         if (productData) setProducts(productData);
       } catch (err) { 
         console.error(err); 
@@ -43,45 +50,40 @@ export default function POSPage() {
   const addToCart = (product: ProductData) => {
     setCart((prevCart) => {
       const existing = prevCart.find((item) => item.id === product.id);
-      if (existing) return prevCart.map((item) => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
-      return [...prevCart, { ...product, quantity: 1 }];
+      if (existing) return prevCart.map((item) => item.id === product.id ? { ...item, qty: item.qty + 1 } : item);
+      return [...prevCart, { ...product, qty: 1 }];
     });
   };
 
-  const decreaseQuantity = (productId: string | number) => {
+  const decreaseQuantity = (productId: string) => {
     setCart((prevCart) => {
       const existing = prevCart.find((item) => item.id === productId);
-      if (existing?.quantity === 1) return prevCart.filter((item) => item.id !== productId);
-      return prevCart.map((item) => item.id === productId ? { ...item, quantity: item.quantity - 1 } : item);
+      if (existing?.qty === 1) return prevCart.filter((item) => item.id !== productId);
+      return prevCart.map((item) => item.id === productId ? { ...item, qty: item.qty - 1 } : item);
     });
   };
 
-  const totalPrice = cart.reduce((sum, item) => sum + (item.price || 0) * item.quantity, 0);
-  const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const totalPrice = cart.reduce((sum, item) => sum + (item.sell_price || 0) * item.qty, 0);
+  const totalItems = cart.reduce((sum, item) => sum + item.qty, 0);
 
   const handleCheckout = async () => {
     if (cart.length === 0 || !supabase) return;
     setIsSubmitting(true);
 
     try {
-      let lat: number | null = null;
-      let lng: number | null = null;
-
-      if ("geolocation" in navigator) {
-        try {
-          const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
-          });
-          lat = position.coords.latitude;
-          lng = position.coords.longitude;
-        } catch (geoError) {
-          console.warn("ไม่สามารถดึง GPS ได้:", geoError);
-        }
-      }
-
+      // เรียกใช้ฟังก์ชันจากภายนอก Component แทน
+      const docNo = generateDocNo();
+      
       const { data: orderData, error: orderError } = await supabase
         .from("orders")
-        .insert([{ total_price: totalPrice, latitude: lat, longitude: lng }])
+        .insert([{ 
+          store_id: store?.id || null,
+          doc_no: docNo,
+          order_source: 'POS',
+          status: 'completed',
+          total_amount: totalPrice,
+          payment_method: 'cash'
+        }])
         .select()
         .single();
 
@@ -89,21 +91,23 @@ export default function POSPage() {
 
       const orderItems = cart.map((item) => ({
         order_id: orderData.id,
-        product_name: item.name || "Unknown Product",
-        quantity: item.quantity,
-        price: item.price || 0
+        product_id: item.id,
+        qty: item.qty,
+        unit_price: item.sell_price || 0
       }));
 
       const { error: itemsError } = await supabase.from("order_items").insert(orderItems);
       if (itemsError) throw itemsError;
 
-      alert(`บันทึกคำสั่งซื้อสำเร็จ!\nยอดรวม: ฿${totalPrice.toLocaleString()}\nพิกัด GPS: ${lat ? "บันทึกแล้ว" : "ไม่ได้ระบุ"}`);
+      alert(`บันทึกคำสั่งซื้อสำเร็จ!\nเลขที่บิล: ${docNo}\nยอดรวม: ฿${totalPrice.toLocaleString()}`);
       setCart([]);
       setIsMobileCartOpen(false);
 
-    } catch (error) {
+    // 2. เปลี่ยน any เป็น unknown เพื่อความปลอดภัยสูงสุดของ TypeScript
+    } catch (error: unknown) {
       console.error("เกิดข้อผิดพลาดในการบันทึกบิล:", error);
-      alert("เกิดข้อผิดพลาดในการสั่งซื้อ กรุณาลองใหม่อีกครั้ง");
+      const errorMessage = error instanceof Error ? error.message : "กรุณาลองใหม่อีกครั้ง";
+      alert("เกิดข้อผิดพลาดในการสั่งซื้อ: " + errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -141,7 +145,7 @@ export default function POSPage() {
                   )}
                 </div>
                 <h3 className="font-semibold text-center text-sm md:text-base line-clamp-2 min-h-[2.5rem] w-full">{product.name || "ไม่มีชื่อ"}</h3>
-                <p className="text-blue-600 font-extrabold mt-1 text-base">฿{(product.price || 0).toLocaleString()}</p>
+                <p className="text-blue-600 font-extrabold mt-1 text-base">฿{(product.sell_price || 0).toLocaleString()}</p>
               </div>
             ))}
           </div>
@@ -161,11 +165,11 @@ export default function POSPage() {
                     <div key={item.id} className="flex justify-between items-center bg-white p-3 rounded-xl border shadow-sm">
                       <div className="flex-1">
                         <p className="font-semibold text-sm line-clamp-1">{item.name}</p>
-                        <p className="text-blue-600 text-sm font-bold">฿{item.price?.toLocaleString()}</p>
+                        <p className="text-blue-600 text-sm font-bold">฿{item.sell_price?.toLocaleString()}</p>
                       </div>
                       <div className="flex items-center gap-3 bg-gray-100 px-2 py-1 rounded-lg">
                         <button onClick={() => decreaseQuantity(item.id)} className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm font-bold active:scale-90">-</button>
-                        <span className="font-bold text-sm w-4 text-center">{item.quantity}</span>
+                        <span className="font-bold text-sm w-4 text-center">{item.qty}</span>
                         <button onClick={() => addToCart(item)} className="w-6 h-6 flex items-center justify-center bg-blue-600 rounded text-white shadow-sm font-bold active:scale-90">+</button>
                       </div>
                     </div>
