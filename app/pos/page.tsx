@@ -18,7 +18,7 @@ interface Product {
 
 interface CartItem extends Product {
   cart_qty: number;
-  remark?: string; // เพิ่มฟิลด์หมายเหตุ
+  remark?: string;
 }
 
 interface StoreSettings {
@@ -51,7 +51,7 @@ interface PendingOrderItem {
   product_id: string;
   unit_price: number;
   qty: number;
-  remark?: string; // เพิ่มฟิลด์หมายเหตุ
+  remark?: string;
   products?: {
     name: string;
     is_vat_exempt: boolean;
@@ -195,7 +195,7 @@ export default function POSPage() {
           item.id === product.id ? { ...item, cart_qty: item.cart_qty + 1 } : item
         );
       }
-      return [...prev, { ...product, cart_qty: 1, remark: "" }]; // เริ่มต้นด้วยหมายเหตุว่างๆ
+      return [...prev, { ...product, cart_qty: 1, remark: "" }];
     });
   };
 
@@ -203,7 +203,6 @@ export default function POSPage() {
     setCart((prev) => prev.filter((item) => item.id !== id));
   };
 
-  // ฟังก์ชันสำหรับอัปเดตหมายเหตุของสินค้าแต่ละชิ้นในตะกร้า
   const updateRemark = (id: string, remark: string) => {
     setCart((prev) => prev.map((item) => item.id === id ? { ...item, remark } : item));
   };
@@ -278,7 +277,7 @@ export default function POSPage() {
         product_id: item.id,
         qty: item.cart_qty,
         unit_price: item.price,
-        remark: item.remark || "", // บันทึกหมายเหตุลง DB
+        remark: item.remark || "",
       }));
       const { error: itemsError } = await supabase.from("order_items").insert(orderItemsToInsert);
       if (itemsError) throw itemsError;
@@ -357,7 +356,7 @@ export default function POSPage() {
         product_id: item.id,
         qty: item.cart_qty,
         unit_price: item.price,
-        remark: item.remark || "", // บันทึกหมายเหตุลง DB
+        remark: item.remark || "",
       }));
 
       const { error: itemsError } = await supabase.from("order_items").insert(orderItemsToInsert);
@@ -494,7 +493,12 @@ export default function POSPage() {
       <div className="flex h-screen bg-gray-100 font-sans relative no-print">
         <div className="flex-1 flex flex-col p-4 md:p-6 overflow-hidden">
           <div className="mb-4 flex flex-col md:flex-row justify-between items-center bg-white p-4 rounded-xl shadow-sm gap-4">
-            <h1 className="text-2xl font-bold text-gray-800">POS</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-gray-800">POS</h1>
+              <button onClick={() => router.push("/")} className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs transition-colors border border-gray-200">
+                🏠 หน้าหลัก
+              </button>
+            </div>
             <div className="flex w-full md:w-auto gap-3">
               <input
                 type="text"
@@ -565,7 +569,6 @@ export default function POSPage() {
                       <button onClick={() => removeFromCart(item.id)} className="text-gray-300 hover:text-red-500 font-bold">✕</button>
                     </div>
                   </div>
-                  {/* ฟิลด์กรอกหมายเหตุ */}
                   <input
                     type="text"
                     placeholder="หมายเหตุ (เช่น เพิ่มสี, ขนาดพิเศษ)..."
@@ -590,7 +593,6 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* --- หน้าต่าง: รายการบิลค้างชำระ --- */}
       {showPendingModal && (
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 p-4 no-print">
              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
@@ -665,7 +667,6 @@ export default function POSPage() {
           </div>
       )}
 
-      {/* --- หน้าต่างใบแจ้งหนี้ (ก่อนชำระเงิน) --- */}
       {showCheckout && storeSettings && (
         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-30 p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
@@ -756,7 +757,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* --- โครงสร้างสำหรับพิมพ์ใบแจ้งหนี้ --- */}
       {showCheckout && storeSettings && (
         <div id="invoice-print-area">
           <div className="text-center mb-2">
@@ -803,7 +803,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* --- หน้าต่างพรีวิวใบเสร็จรับเงิน (บนหน้าจอ) --- */}
       {receiptData && storeSettings && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col relative">
@@ -900,7 +899,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* --- โครงสร้างสำหรับพิมพ์ใบเสร็จ --- */}
       {receiptData && storeSettings && (
         <div id="receipt-print-area">
           <div className="text-center mb-2">
