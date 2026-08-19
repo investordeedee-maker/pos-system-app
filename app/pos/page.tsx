@@ -61,7 +61,7 @@ function generatePromptPayPayload(mobileOrId: string, amount: number): string {
   return payloadWithoutCrc + (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
 }
 
-// 🔔 ฟังก์ชันสร้างเสียงติ๊ด (Beep) แบบกังวาน (คล้ายกระดิ่ง/POS)
+// 🔔 ฟังก์ชันสร้างเสียงติ๊ด (Beep)
 const playBeep = () => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -73,13 +73,11 @@ const playBeep = () => {
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.type = "sine";
-    osc.frequency.setValueAtTime(800, ctx.currentTime); // ความถี่เสียง 800Hz ฟังชัด
-    gain.gain.setValueAtTime(0.5, ctx.currentTime); // ความดัง
+    osc.frequency.setValueAtTime(800, ctx.currentTime); 
+    gain.gain.setValueAtTime(0.5, ctx.currentTime);
     osc.start();
-    osc.stop(ctx.currentTime + 0.1); // ความยาว 0.1 วินาที
-  } catch { 
-    // Ignore audio error
-  }
+    osc.stop(ctx.currentTime + 0.1); 
+  } catch { /* Ignore */ }
 };
 
 // 🔔 ฟังก์ชันเสียงติ๊ด 2 ครั้ง (สำเร็จ)
@@ -103,7 +101,7 @@ export default function POSPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
-  const [savedPendingReceipt, setSavedPendingReceipt] = useState<ReceiptData | null>(null); // State สำหรับ Modal บิลค้างสำเร็จ
+  const [savedPendingReceipt, setSavedPendingReceipt] = useState<ReceiptData | null>(null); 
   
   const [showPendingModal, setShowPendingModal] = useState(false);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
@@ -122,11 +120,8 @@ export default function POSPage() {
           const { data: productsData } = await supabase.from("products").select("*").eq("store_id", profile.store_id).order("sort_order", { ascending: true }).order("created_at", { ascending: false });
           if (productsData) setProducts(productsData.map((p: Product) => ({ ...p, price: p.sell_price })));
         }
-      } catch { 
-        // Ignore error
-      } finally { 
-        if (isMounted) setLoading(false); 
-      }
+      } catch { /* Ignore */ } 
+      finally { if (isMounted) setLoading(false); }
     };
     initPOS();
     return () => { isMounted = false; };
@@ -173,11 +168,10 @@ export default function POSPage() {
       if (error) throw error;
       setPendingOrders(data || []);
       setShowPendingModal(true);
-    } catch {
-       // Ignore error
-    }
+    } catch { /* Ignore */ }
   };
 
+  // ✅ บันทึกค้างชำระ (ไม่ต้องตรวจเงินสด)
   const handleSavePendingOrder = async () => {
     playBeep();
     if (!storeSettings?.id || cart.length === 0) return;
@@ -204,20 +198,17 @@ export default function POSPage() {
       setCart([]);
       setShowCheckout(false);
       setIsMobileCartOpen(false);
-    } catch {
-      // Ignore error
-    } finally { 
-      setIsProcessing(false); 
-    }
+    } catch { /* Ignore */ } 
+    finally { setIsProcessing(false); }
   };
 
+  // ✅ ยืนยันรับเงิน (ตรวจเงินสดเฉพาะตอนชำระทันที)
   const handleConfirmPayment = async () => {
     playBeep();
     if (!storeSettings?.id || cart.length === 0) return;
     
-    const finalCashReceived = cashReceived;
-    if (paymentMethod === "cash" && (typeof finalCashReceived !== "number" || finalCashReceived < totalAmount)) {
-      alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วนก่อนกดยืนยัน");
+    if (paymentMethod === "cash" && (typeof cashReceived !== "number" || cashReceived < totalAmount)) {
+      alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วนก่อนกดยืนยันชำระเงิน");
       return;
     }
 
@@ -239,23 +230,20 @@ export default function POSPage() {
       for (const item of cart) await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
       setProducts(prev => prev.map(p => { const sold = cart.find(c => c.id === p.id); return sold ? { ...p, stock_qty: p.stock_qty - sold.cart_qty } : p; }));
 
-      setReceiptData({ docNo, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod, cashReceived: finalCashReceived, changeAmount, date: now });
+      setReceiptData({ docNo, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod, cashReceived, changeAmount, date: now });
       playSuccessBeep();
       setCart([]); setShowCheckout(false); setIsMobileCartOpen(false); setCashReceived("");
-    } catch {
-       // Ignore error
-    } finally { 
-      setIsProcessing(false); 
-    }
+    } catch { /* Ignore */ } 
+    finally { setIsProcessing(false); }
   };
 
+  // ✅ ชำระบิลค้าง
   const handlePayPendingOrder = async () => {
     playBeep();
     if (!selectedPendingOrder) return;
     const orderTotal = selectedPendingOrder.total_amount;
     
-    const finalCashReceived = cashReceived;
-    if (paymentMethod === "cash" && (typeof finalCashReceived !== "number" || finalCashReceived < orderTotal)) {
+    if (paymentMethod === "cash" && (typeof cashReceived !== "number" || cashReceived < orderTotal)) {
       alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วน");
       return;
     }
@@ -268,30 +256,27 @@ export default function POSPage() {
       const gVatable = selectedPendingOrder.total_amount - tExempt;
       const tVatable = gVatable / 1.07;
       const vAmount = gVatable - tVatable;
-      const cAmount = paymentMethod === "cash" && typeof finalCashReceived === "number" ? finalCashReceived - selectedPendingOrder.total_amount : 0;
+      const cAmount = paymentMethod === "cash" && typeof cashReceived === "number" ? cashReceived - selectedPendingOrder.total_amount : 0;
 
-      setReceiptData({ docNo: selectedPendingOrder.doc_no, items: mappedItems, totalAmount: selectedPendingOrder.total_amount, totalExempt: tExempt, totalVatable: tVatable, vatAmount: vAmount, paymentMethod, cashReceived: finalCashReceived, changeAmount: cAmount, date: new Date() });
+      setReceiptData({ docNo: selectedPendingOrder.doc_no, items: mappedItems, totalAmount: selectedPendingOrder.total_amount, totalExempt: tExempt, totalVatable: tVatable, vatAmount: vAmount, paymentMethod, cashReceived, changeAmount: cAmount, date: new Date() });
       playSuccessBeep();
       setSelectedPendingOrder(null); setShowPendingModal(false); setCashReceived("");
-    } catch {
-       // Ignore error
-    } finally { 
-      setIsProcessing(false); 
-    }
+    } catch { /* Ignore */ } 
+    finally { setIsProcessing(false); }
   };
 
   if (loading) return <div className="flex min-h-screen items-center justify-center font-bold text-gray-500">กำลังโหลดระบบ POS...</div>;
 
   return (
     <>
-      {/* 🖨️ CSS แก้ไขระบบพิมพ์ บังคับล้าง Format เดิมให้โชว์รูปได้ 100% */}
+      {/* 🖨️ CSS บังคับแสดงผลการพิมพ์ให้สมบูรณ์ (ล้าง style เดิมทั้งหมดตอนพิมพ์) */}
       <style dangerouslySetInnerHTML={{
         __html: `
         .print-only { display: none; }
         @media print {
           @page { margin: 0; size: 58mm auto; }
-          body, html { margin: 0; padding: 0; background: white; }
-          .no-print { display: none !important; }
+          body, html { margin: 0 !important; padding: 0 !important; background: white !important; }
+          body > div:not(.print-only) { display: none !important; }
           .print-only { 
             display: block !important; 
             width: 58mm; 
@@ -393,14 +378,14 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* --- 📝 หน้าต่างออกบิล (แบบกว้าง) --- */}
+      {/* --- 📝 หน้าต่างออกบิล (สร้างรายการใหม่) --- */}
       {showCheckout && storeSettings && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[90vh]">
             
             <div className="w-full md:w-1/2 bg-gray-50 p-6 flex flex-col border-r border-gray-200 overflow-y-auto">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-black text-gray-800">📝 สรุปใบแจ้งหนี้</h2>
+                <h2 className="text-2xl font-black text-gray-800">📝 สรุปใบแจ้งหนี้</h2>
                 <button onClick={() => { playBeep(); setShowCheckout(false); }} className="md:hidden text-gray-500 font-bold text-2xl w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">✕</button>
               </div>
               <div className="space-y-3 border-b border-dashed border-gray-300 pb-4 mb-4 flex-1">
@@ -410,7 +395,7 @@ export default function POSPage() {
                       <span className="font-bold">{item.cart_qty} x {item.name}</span>
                       <span className="font-black text-blue-600">฿{(item.price * item.cart_qty).toLocaleString()}</span>
                     </div>
-                    {item.remark && <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded mt-2 self-start">- {item.remark}</span>}
+                    {item.remark && <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded mt-2 self-start">- หมายเหตุ: {item.remark}</span>}
                   </div>
                 ))}
               </div>
@@ -468,7 +453,7 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* --- 📝 หน้าต่างบิลค้าง (เพิ่มรายการสินค้าในฝั่งซ้ายแล้ว) --- */}
+      {/* --- 📝 หน้าต่างเลือกชำระบิลค้าง (แสดงรายการฝั่งซ้าย) --- */}
       {showPendingModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[90vh]">
@@ -559,7 +544,7 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* --- ✅ หน้าต่าง Modal ใหม่: บันทึกบิลค้างสำเร็จ (ทดแทน Alert ธรรมดา) --- */}
+      {/* --- ✅ Modal แจ้งเตือน: บันทึกค้างชำระสำเร็จ (ทดแทน Alert) --- */}
       {savedPendingReceipt && storeSettings && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
@@ -596,7 +581,7 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* --- ✅ หน้าต่างใบเสร็จรับเงิน (สำเร็จ) --- */}
+      {/* --- ✅ Modal แจ้งเตือน: ชำระเงินเรียบร้อย --- */}
       {receiptData && storeSettings && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
@@ -636,14 +621,14 @@ export default function POSPage() {
               </div>
             </div>
             <div className="p-4 bg-gray-50 border-t flex gap-3">
-              <button onClick={() => { playBeep(); setReceiptData(null); }} className="flex-1 bg-gray-100 border border-gray-300 text-gray-700 font-bold py-3.5 rounded-xl">ปิด</button>
+              <button onClick={() => { playBeep(); setReceiptData(null); }} className="flex-1 bg-white border border-gray-300 text-gray-700 font-bold py-3.5 rounded-xl">ปิด</button>
               <button onClick={() => { playBeep(); window.print(); }} className="flex-[2] bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-md">🖨️ พิมพ์สลิป (58mm)</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* --- 🖨️ โครงสร้าง HTML สำหรับส่งเข้าเครื่องพิมพ์ (ซ่อนอยู่หลังบ้าน) --- */}
+      {/* --- 🖨️ โครงสร้าง HTML สำหรับส่งเข้าเครื่องพิมพ์โดยเฉพาะ (ไม่แสดงบนจอ) --- */}
       <div className="print-only">
         {showCheckout && !receiptData && (
           <div>
