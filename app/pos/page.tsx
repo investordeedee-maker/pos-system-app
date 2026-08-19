@@ -61,7 +61,6 @@ function generatePromptPayPayload(mobileOrId: string, amount: number): string {
   return payloadWithoutCrc + (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
 }
 
-// 🔔 ฟังก์ชันสร้างเสียงติ๊ด (Beep) แบบเครื่อง POS จริงๆ
 const playBeep = () => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -73,12 +72,12 @@ const playBeep = () => {
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.type = "sine";
-    osc.frequency.setValueAtTime(1200, ctx.currentTime); // ความถี่เสียง
-    gain.gain.setValueAtTime(0.1, ctx.currentTime); // ความดัง
+    osc.frequency.setValueAtTime(1200, ctx.currentTime);
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
     osc.start();
-    osc.stop(ctx.currentTime + 0.05); // ความยาวเสียง (สั้นๆ)
+    osc.stop(ctx.currentTime + 0.05);
   } catch { 
-    // Ignore audio error
+    // Ignore error
   }
 };
 
@@ -381,12 +380,10 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* --- 📝 หน้าต่างออกบิล (แบบกว้าง Side-by-side ไม่ต้องเลื่อน!) --- */}
       {showCheckout && storeSettings && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[90vh]">
             
-            {/* ซีกซ้าย: สรุปรายการบิล */}
             <div className="w-full md:w-1/2 bg-gray-50 p-6 flex flex-col border-r border-gray-200 overflow-y-auto">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-black text-gray-800">สรุปใบแจ้งหนี้</h2>
@@ -408,7 +405,6 @@ export default function POSPage() {
               </div>
             </div>
 
-            {/* ซีกขวา: ตัวเลือกชำระเงิน */}
             <div className="w-full md:w-1/2 bg-white p-6 flex flex-col">
               <div className="hidden md:flex justify-end mb-2">
                 <button onClick={() => { playBeep(); setShowCheckout(false); }} className="text-gray-400 hover:text-red-500 font-bold text-2xl">✕</button>
@@ -458,7 +454,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* --- 📝 หน้าต่างบิลค้าง (Side-by-side กว้าง ไม่ต้องเลื่อน) --- */}
       {showPendingModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[90vh]">
@@ -529,7 +524,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* --- ✅ หน้าต่างใบเสร็จรับเงิน (สำเร็จ) --- */}
       {receiptData && storeSettings && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
@@ -576,7 +570,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* --- 🖨️ โครงสร้าง HTML สำหรับส่งเข้าเครื่องพิมพ์เท่านั้น (ซ่อนอยู่หลังบ้าน) --- */}
       <div className="print-only">
         {showCheckout && !receiptData && (
           <div>
