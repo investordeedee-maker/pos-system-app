@@ -4,12 +4,13 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
+// แก้ไขจุดนี้: ถอยกลับ 2 ชั้นเพื่อให้ตรงกับโครงสร้างโฟลเดอร์จริงของคุณ
 import { supabase } from "../../lib/supabase";
 
 interface Product {
   id: string;
   name: string;
-  price: number; 
+  price: number;
   sell_price: number;
   stock_qty: number;
   is_vat_exempt: boolean;
@@ -69,7 +70,7 @@ interface PendingOrder {
 function generatePromptPayPayload(mobileOrId: string, amount: number): string {
   const cleanId = mobileOrId.replace(/[^0-9]/g, "");
   let targetField = "";
-  
+
   if (cleanId.length === 10) {
     const formattedMobile = "0066" + cleanId.substring(1);
     targetField = "0066" + formattedMobile.length.toString().padStart(2, "0") + formattedMobile;
@@ -83,7 +84,7 @@ function generatePromptPayPayload(mobileOrId: string, amount: number): string {
   const tag29 = "29" + merchantAccountInfo.length.toString().padStart(2, "0") + merchantAccountInfo;
   const asciiAmount = amount.toFixed(2);
 
-  const payloadWithoutCrc = 
+  const payloadWithoutCrc =
     "000201" +
     "010211" +
     tag29 +
@@ -110,17 +111,18 @@ function generatePromptPayPayload(mobileOrId: string, amount: number): string {
 export default function POSPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  
+
   const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
 
   const [showCheckout, setShowCheckout] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer">("cash");
   const [cashReceived, setCashReceived] = useState<number | "">("");
   const [isProcessing, setIsProcessing] = useState(false);
-  
+
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
 
   const [showPendingModal, setShowPendingModal] = useState(false);
@@ -136,7 +138,7 @@ export default function POSPage() {
           if (isMounted) router.push("/login");
           return;
         }
-        
+
         const { data: profile } = await supabase
           .from("profiles")
           .select("store_id")
@@ -149,9 +151,9 @@ export default function POSPage() {
             .select("*")
             .eq("id", profile.store_id)
             .single();
-            
+
           if (storeData) setStoreSettings(storeData);
-          
+
           const { data: productsData } = await supabase
             .from("products")
             .select("*")
@@ -160,9 +162,9 @@ export default function POSPage() {
             .order("created_at", { ascending: false });
 
           if (productsData) {
-            const mappedProducts = productsData.map(p => ({
+            const mappedProducts = productsData.map((p: Product) => ({
               ...p,
-              price: p.sell_price 
+              price: p.sell_price
             }));
             setProducts(mappedProducts);
           }
@@ -203,11 +205,20 @@ export default function POSPage() {
     setCart((prev) => prev.filter((item) => item.id !== id));
   };
 
+  const decreaseQuantity = (productId: string) => {
+    setCart((prevCart) => {
+      const existing = prevCart.find((item) => item.id === productId);
+      if (existing?.cart_qty === 1) return prevCart.filter((item) => item.id !== productId);
+      return prevCart.map((item) => item.id === productId ? { ...item, cart_qty: item.cart_qty - 1 } : item);
+    });
+  };
+
   const updateRemark = (id: string, remark: string) => {
     setCart((prev) => prev.map((item) => item.id === id ? { ...item, remark } : item));
   };
 
   const totalAmount = cart.reduce((sum, item) => sum + item.price * item.cart_qty, 0);
+  const totalItems = cart.reduce((sum, item) => sum + item.cart_qty, 0);
   const totalExempt = cart.filter(item => item.is_vat_exempt).reduce((sum, item) => sum + item.price * item.cart_qty, 0);
   const grossVatable = totalAmount - totalExempt;
   const totalVatable = grossVatable / 1.07;
@@ -265,9 +276,9 @@ export default function POSPage() {
         store_id: storeSettings.id,
         doc_no: docNo,
         order_source: "POS",
-        status: "pending", 
+        status: "pending",
         total_amount: totalAmount,
-        payment_method: "cash", 
+        payment_method: "cash",
       }]).select().single();
 
       if (orderError) throw orderError;
@@ -285,7 +296,7 @@ export default function POSPage() {
       for (const item of cart) {
         await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
       }
-      
+
       setProducts(prev => prev.map(p => {
         const soldItem = cart.find(c => c.id === p.id);
         return soldItem ? { ...p, stock_qty: p.stock_qty - soldItem.cart_qty } : p;
@@ -294,6 +305,7 @@ export default function POSPage() {
       alert(`✅ บันทึกใบแจ้งหนี้เลขที่ ${docNo} สำเร็จ (รอเก็บเงินหน้างาน)`);
       setCart([]);
       setShowCheckout(false);
+      setIsMobileCartOpen(false);
 
     } catch (error: unknown) {
       if (error instanceof Error) alert("เกิดข้อผิดพลาดในการบันทึกบิลค้าง: " + error.message);
@@ -369,12 +381,12 @@ export default function POSPage() {
           .update({ stock_qty: newStock })
           .eq("id", item.id);
       }
-      
+
       setProducts(prev => prev.map(p => {
         const soldItem = cart.find(c => c.id === p.id);
         return soldItem ? { ...p, stock_qty: p.stock_qty - soldItem.cart_qty } : p;
       }));
-      
+
       setReceiptData({
         docNo,
         items: cart,
@@ -390,6 +402,7 @@ export default function POSPage() {
 
       setCart([]);
       setShowCheckout(false);
+      setIsMobileCartOpen(false);
       setCashReceived("");
 
     } catch (error: unknown) {
@@ -403,59 +416,59 @@ export default function POSPage() {
 
   const handlePayPendingOrder = async () => {
     if (!selectedPendingOrder) return;
-    
+
     const orderTotal = selectedPendingOrder.total_amount;
     if (paymentMethod === "cash" && (typeof cashReceived !== "number" || cashReceived < orderTotal)) {
-        alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วน");
-        return;
+      alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วน");
+      return;
     }
 
     setIsProcessing(true);
     try {
-        const { error } = await supabase
-            .from("orders")
-            .update({ status: "completed", payment_method: paymentMethod })
-            .eq("id", selectedPendingOrder.id);
-        
-        if (error) throw error;
+      const { error } = await supabase
+        .from("orders")
+        .update({ status: "completed", payment_method: paymentMethod })
+        .eq("id", selectedPendingOrder.id);
 
-        const mappedItems: CartItem[] = selectedPendingOrder.order_items.map((oi: PendingOrderItem) => ({
-            id: oi.product_id,
-            name: oi.products?.name || "สินค้า",
-            price: oi.unit_price,
-            cart_qty: oi.qty,
-            is_vat_exempt: oi.products?.is_vat_exempt || false,
-            remark: oi.remark || "",
-            stock_qty: 0, sell_price: 0, image_url: ""
-        }));
+      if (error) throw error;
 
-        const tExempt = mappedItems.filter(item => item.is_vat_exempt).reduce((sum, item) => sum + item.price * item.cart_qty, 0);
-        const gVatable = orderTotal - tExempt;
-        const tVatable = gVatable / 1.07;
-        const vAmount = gVatable - tVatable;
-        const cAmount = paymentMethod === "cash" && typeof cashReceived === "number" ? cashReceived - orderTotal : 0;
+      const mappedItems: CartItem[] = selectedPendingOrder.order_items.map((oi: PendingOrderItem) => ({
+        id: oi.product_id,
+        name: oi.products?.name || "สินค้า",
+        price: oi.unit_price,
+        cart_qty: oi.qty,
+        is_vat_exempt: oi.products?.is_vat_exempt || false,
+        remark: oi.remark || "",
+        stock_qty: 0, sell_price: 0, image_url: ""
+      }));
 
-        setReceiptData({
-            docNo: selectedPendingOrder.doc_no,
-            items: mappedItems,
-            totalAmount: orderTotal,
-            totalExempt: tExempt,
-            totalVatable: tVatable,
-            vatAmount: vAmount,
-            paymentMethod,
-            cashReceived,
-            changeAmount: cAmount,
-            date: new Date()
-        });
+      const tExempt = mappedItems.filter(item => item.is_vat_exempt).reduce((sum, item) => sum + item.price * item.cart_qty, 0);
+      const gVatable = orderTotal - tExempt;
+      const tVatable = gVatable / 1.07;
+      const vAmount = gVatable - tVatable;
+      const cAmount = paymentMethod === "cash" && typeof cashReceived === "number" ? cashReceived - orderTotal : 0;
 
-        setSelectedPendingOrder(null);
-        setShowPendingModal(false);
-        setCashReceived("");
-        
+      setReceiptData({
+        docNo: selectedPendingOrder.doc_no,
+        items: mappedItems,
+        totalAmount: orderTotal,
+        totalExempt: tExempt,
+        totalVatable: tVatable,
+        vatAmount: vAmount,
+        paymentMethod,
+        cashReceived,
+        changeAmount: cAmount,
+        date: new Date()
+      });
+
+      setSelectedPendingOrder(null);
+      setShowPendingModal(false);
+      setCashReceived("");
+
     } catch (error: unknown) {
-        if (error instanceof Error) alert("เกิดข้อผิดพลาดในการอัปเดตบิล: " + error.message);
+      if (error instanceof Error) alert("เกิดข้อผิดพลาดในการอัปเดตบิล: " + error.message);
     } finally {
-        setIsProcessing(false);
+      setIsProcessing(false);
     }
   };
 
@@ -463,7 +476,8 @@ export default function POSPage() {
 
   return (
     <>
-      <style dangerouslySetInnerHTML={{__html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         #invoice-print-area { display: none; }
         #receipt-print-area { display: none; }
         @media print {
@@ -490,133 +504,170 @@ export default function POSPage() {
         }
       `}} />
 
-      <div className="flex h-screen bg-gray-100 font-sans relative no-print">
-        <div className="flex-1 flex flex-col p-4 md:p-6 overflow-hidden">
-          <div className="mb-4 flex flex-col md:flex-row justify-between items-center bg-white p-4 rounded-xl shadow-sm gap-4">
+      <div className="flex flex-col h-screen bg-gray-100 font-sans relative no-print pb-24 md:pb-0">
+        
+        {/* Header แถบบนสุด */}
+        <header className="bg-white shadow-sm px-4 py-3 flex flex-wrap items-center justify-between z-10 sticky top-0">
+          <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-800">POS</h1>
-              <button onClick={() => router.push("/")} className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs transition-colors border border-gray-200">
-                🏠 หน้าหลัก
-              </button>
+              {storeSettings?.logo_url ? (
+                <div className="w-10 h-10 relative rounded-md overflow-hidden bg-white border border-gray-100">
+                  <Image src={storeSettings.logo_url} alt="Logo" fill className="object-contain p-1" unoptimized />
+                </div>
+              ) : (
+                <div className="w-10 h-10 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold text-lg">{storeSettings?.name ? storeSettings.name.charAt(0) : "S"}</div>
+              )}
+              <h1 className="text-xl font-black text-gray-800 tracking-tight hidden sm:block">{storeSettings?.name || "Standard POS"}</h1>
             </div>
-            <div className="flex w-full md:w-auto gap-3">
-              <input
-                type="text"
-                placeholder="ค้นหาชื่อสินค้า..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="px-4 py-3 border border-gray-300 rounded-lg w-full md:w-64 outline-none bg-gray-50"
-              />
-              <button onClick={loadPendingOrders} className="bg-orange-100 hover:bg-orange-200 text-orange-700 px-4 py-3 rounded-lg font-bold shadow-sm whitespace-nowrap">🧾 บิลค้างชำระ</button>
-              <button onClick={() => router.push("/settings")} className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-3 rounded-lg font-bold shadow-sm whitespace-nowrap">ตั้งค่า</button>
-              <button onClick={() => router.push("/products")} className="bg-gray-800 hover:bg-gray-900 text-white px-4 py-3 rounded-lg font-bold shadow-md whitespace-nowrap">คลังสินค้า</button>
-            </div>
+            <button onClick={() => router.push("/")} className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs md:text-sm border border-gray-200 shadow-sm transition-all active:scale-95">
+              🏠 หน้าหลัก
+            </button>
           </div>
+          
+          <div className="flex w-full md:w-auto gap-2 mt-3 md:mt-0 overflow-x-auto pb-1 md:pb-0">
+            <input
+              type="text"
+              placeholder="ค้นหาสินค้า..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg w-full md:w-48 outline-none bg-gray-50 text-sm focus:border-blue-400 focus:bg-white transition-all flex-shrink-0"
+            />
+            <button onClick={loadPendingOrders} className="bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-2 rounded-lg font-bold shadow-sm whitespace-nowrap text-sm flex-shrink-0">🧾 บิลค้าง</button>
+            <button onClick={() => router.push("/products")} className="bg-gray-800 hover:bg-gray-900 text-white px-3 py-2 rounded-lg font-bold shadow-md whitespace-nowrap text-sm flex-shrink-0">📦 คลัง</button>
+          </div>
+        </header>
 
-          <div className="flex-1 overflow-y-auto pr-2">
+        <div className="flex flex-1 overflow-hidden">
+          {/* พื้นที่แคตตาล็อกสินค้า */}
+          <div className="flex-1 flex flex-col p-4 overflow-y-auto">
             {products.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-400">
                 <p className="font-medium text-lg">ยังไม่มีสินค้าในร้าน</p>
                 <button onClick={() => router.push("/products")} className="mt-4 text-blue-600 hover:underline font-bold">ไปเพิ่มสินค้าที่คลังเลย</button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 pb-20">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-4 pb-10">
                 {filteredProducts.map((product) => (
                   <div
                     key={product.id}
                     onClick={() => addToCart(product)}
-                    className={`bg-white p-4 rounded-2xl shadow-sm border ${product.stock_qty <= 0 ? 'border-red-200 opacity-60' : 'border-gray-100 hover:border-blue-400 cursor-pointer'} transition-all flex flex-col h-56`}
+                    className={`bg-white p-3 rounded-2xl shadow-sm border ${product.stock_qty <= 0 ? 'border-red-200 opacity-60' : 'border-gray-100 hover:border-blue-400 cursor-pointer hover:shadow-md'} transition-all flex flex-col active:scale-95`}
                   >
-                    <div className="flex-1 flex items-center justify-center bg-white rounded-xl mb-3 overflow-hidden relative border border-gray-50">
+                    <div className="w-full aspect-square bg-gray-50 rounded-xl mb-2 flex items-center justify-center relative overflow-hidden border border-gray-100 p-1">
                       {product.image_url ? (
-                        <Image src={product.image_url} alt={product.name} fill className="object-contain p-2" unoptimized />
+                        <Image src={product.image_url} alt={product.name} fill className="object-cover rounded-lg" unoptimized />
                       ) : (
-                        <span className="text-gray-400 text-sm">ไม่มีรูป</span>
+                        <span className="text-gray-400 text-xs font-medium">ไม่มีรูป</span>
                       )}
                     </div>
-                    <h3 className="font-bold text-gray-800 text-sm truncate">{product.name}</h3>
-                    <div className="flex justify-between items-end mt-1">
-                      <span className="text-blue-600 font-black text-lg">{product.price.toFixed(2)} ฿</span>
-                      <span className="text-xs font-bold px-2 py-1 rounded bg-gray-100 text-gray-600">คลัง: {product.stock_qty}</span>
+                    <h3 className="font-bold text-gray-800 text-sm line-clamp-2 h-10 mt-1">{product.name}</h3>
+                    <div className="flex justify-between items-end mt-2">
+                      <span className="text-blue-600 font-black text-base md:text-lg">฿{product.price.toLocaleString()}</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-600">คลัง: {product.stock_qty}</span>
                     </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
+
+          {/* ตะกร้าสินค้าด้านขวา (ซ่อนบนมือถือ) */}
+          <div className={`${isMobileCartOpen ? "fixed inset-0 z-50 flex" : "hidden"} md:flex w-full md:w-[350px] lg:w-[400px] flex-col bg-gray-900/50 md:bg-white md:shadow-2xl md:border-l border-gray-200`}>
+            <div className="bg-white w-full h-full md:h-auto flex flex-col mt-auto md:mt-0 rounded-t-3xl md:rounded-none overflow-hidden">
+              <div className="p-4 bg-gray-900 text-white flex justify-between items-center rounded-t-3xl md:rounded-none">
+                <h2 className="text-base font-bold flex items-center gap-2">🛒 ตะกร้าสินค้า <span className="bg-blue-500 text-white px-2 py-0.5 rounded-full text-xs">{totalItems}</span></h2>
+                <div className="flex gap-3">
+                  <button onClick={() => setCart([])} className="text-xs font-medium text-red-400 bg-red-400/10 px-2 py-1 rounded">ล้างทั้งหมด</button>
+                  <button className="md:hidden text-white font-bold px-2" onClick={() => setIsMobileCartOpen(false)}>✕</button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50/50">
+                {cart.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-gray-400 text-sm font-medium border-2 border-dashed border-gray-200 rounded-xl bg-white">ยังไม่ได้เลือกสินค้า</div>
+                ) : (
+                  cart.map((item) => (
+                    <div key={item.id} className="flex flex-col bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex-1 pr-2">
+                          <h4 className="text-sm font-bold text-gray-800 line-clamp-1">{item.name}</h4>
+                          <div className="text-xs font-bold text-blue-600 mt-0.5">฿{item.price.toLocaleString()}</div>
+                        </div>
+                        <div className="flex items-center gap-2 bg-gray-50 px-1 py-1 rounded-lg border border-gray-100">
+                          <button onClick={() => decreaseQuantity(item.id)} className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm font-bold text-gray-600 active:scale-90">-</button>
+                          <span className="font-bold text-sm w-4 text-center text-gray-800">{item.cart_qty}</span>
+                          <button onClick={() => addToCart(item)} className="w-6 h-6 flex items-center justify-center bg-blue-600 rounded text-white shadow-sm font-bold active:scale-90">+</button>
+                          <button onClick={() => removeFromCart(item.id)} className="w-6 h-6 flex items-center justify-center bg-red-100 rounded text-red-500 shadow-sm font-bold active:scale-90 ml-1">✕</button>
+                        </div>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="หมายเหตุ: (เช่น หวานน้อย, ไม่เอาน้ำแข็ง)..."
+                        value={item.remark || ""}
+                        onChange={(e) => updateRemark(item.id, e.target.value)}
+                        className="w-full text-xs px-3 py-1.5 border border-gray-200 rounded-md outline-none bg-gray-50 focus:bg-white focus:border-blue-300 transition-all placeholder-gray-400"
+                      />
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="p-4 bg-white border-t border-gray-100 pb-safe shadow-[0_-4px_10px_rgba(0,0,0,0.02)]">
+                <div className="flex justify-between items-end mb-4">
+                  <span className="text-gray-500 font-bold text-sm">ยอดชำระสุทธิ</span>
+                  <span className="text-3xl font-black text-blue-600">฿{totalAmount.toLocaleString()}</span>
+                </div>
+                <button 
+                  onClick={() => setShowCheckout(true)} 
+                  disabled={cart.length === 0} 
+                  className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-lg ${cart.length > 0 ? "bg-blue-600 text-white hover:bg-blue-700 active:scale-95 shadow-blue-200" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}
+                >
+                  ออกใบแจ้งหนี้ / ชำระเงิน
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="w-full md:w-96 bg-white shadow-2xl flex flex-col z-10 border-l border-gray-200">
-          <div className="p-5 bg-gray-900 text-white flex justify-between items-center">
-            <h2 className="text-lg font-bold">ตะกร้าสินค้า</h2>
-            <button onClick={() => setCart([])} className="text-sm font-medium text-red-400 bg-red-400/10 px-3 py-1 rounded-md">ล้างทั้งหมด</button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/50">
-            {cart.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-gray-400 font-medium">ยังไม่มีสินค้าในตะกร้า</div>
-            ) : (
-              cart.map((item) => (
-                <div key={item.id} className="flex flex-col bg-white p-3 rounded-xl shadow-sm border border-gray-100">
-                  <div className="flex justify-between items-center mb-2">
-                    <div className="flex-1 pr-2">
-                      <h4 className="text-sm font-bold text-gray-800 truncate">{item.name}</h4>
-                      <div className="text-xs text-gray-500 mt-1">{item.price.toFixed(2)} ฿</div>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <span className="text-sm font-black text-blue-600">{item.cart_qty}</span>
-                      <span className="font-black text-sm w-16 text-right">{(item.price * item.cart_qty).toFixed(2)}</span>
-                      <button onClick={() => removeFromCart(item.id)} className="text-gray-300 hover:text-red-500 font-bold">✕</button>
-                    </div>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="หมายเหตุ (เช่น เพิ่มสี, ขนาดพิเศษ)..."
-                    value={item.remark || ""}
-                    onChange={(e) => updateRemark(item.id, e.target.value)}
-                    className="w-full text-xs px-2 py-1 border border-gray-200 rounded outline-none bg-gray-50 focus:bg-white focus:border-blue-300 transition-all"
-                  />
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="p-6 bg-white border-t border-gray-100">
-            <div className="flex justify-between items-end mb-4">
-              <span className="text-gray-500 font-bold">ยอดชำระสุทธิ</span>
-              <span className="text-4xl font-black text-blue-600">{totalAmount.toFixed(2)} <span className="text-xl">฿</span></span>
+        {/* แถบเมนูด้านล่างสำหรับมือถือ (แสดงเมื่อปิดตะกร้า) */}
+        {!isMobileCartOpen && (
+          <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 p-4 px-6 flex justify-between items-center z-40 pb-safe shadow-[0_-10px_20px_rgba(0,0,0,0.05)] pb-8">
+            <div>
+              <p className="text-xs text-gray-500 font-semibold mb-0.5">รวม {totalItems} รายการ</p>
+              <p className="text-xl font-extrabold text-blue-600">฿{totalAmount.toLocaleString()}</p>
             </div>
-            <button onClick={() => setShowCheckout(true)} disabled={cart.length === 0} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-4 rounded-xl shadow-lg text-lg">
-              ออกใบแจ้งหนี้ / ชำระเงิน
+            <button onClick={() => setIsMobileCartOpen(true)} className="bg-gray-900 text-white px-8 py-3 rounded-2xl font-bold shadow-lg shadow-gray-400 active:scale-95 flex items-center gap-2">
+              🛒 ดูตะกร้า
             </button>
           </div>
-        </div>
+        )}
       </div>
 
+      {/* --- ส่วนที่ 1: Modal รายการบิลค้างชำระ --- */}
       {showPendingModal && (
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 p-4 no-print">
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 no-print">
              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-                 <div className="p-5 bg-orange-500 text-white flex justify-between items-center">
-                    <h2 className="text-xl font-bold">🧾 รายการบิลค้างชำระ</h2>
-                    <button onClick={() => { setShowPendingModal(false); setSelectedPendingOrder(null); }} className="text-white font-bold text-xl">✕</button>
+                 <div className="p-4 bg-orange-500 text-white flex justify-between items-center">
+                    <h2 className="text-lg font-bold">🧾 รายการบิลค้างชำระ</h2>
+                    <button onClick={() => { setShowPendingModal(false); setSelectedPendingOrder(null); }} className="text-white font-bold text-2xl w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20">✕</button>
                  </div>
                  
-                 <div className="p-6 overflow-y-auto flex-1 bg-gray-50">
+                 <div className="p-4 md:p-6 overflow-y-auto flex-1 bg-gray-50">
                     {!selectedPendingOrder ? (
                         <>
                             {pendingOrders.length === 0 ? (
-                                <p className="text-center text-gray-500 mt-10">ไม่มีบิลค้างชำระในระบบ</p>
+                                <p className="text-center text-gray-500 mt-10 font-medium">ไม่มีบิลค้างชำระในระบบ</p>
                             ) : (
                                 <div className="space-y-3">
                                     {pendingOrders.map(order => (
-                                        <div key={order.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex justify-between items-center">
+                                        <div key={order.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                                             <div>
-                                                <p className="font-bold text-gray-800">{order.doc_no}</p>
+                                                <p className="font-bold text-gray-800 text-sm">{order.doc_no}</p>
                                                 <p className="text-xs text-gray-500">{new Date(order.created_at).toLocaleString('th-TH')}</p>
                                             </div>
-                                            <div className="flex items-center gap-4">
-                                                <span className="font-black text-blue-600 text-lg">{order.total_amount.toFixed(2)} ฿</span>
-                                                <button onClick={() => setSelectedPendingOrder(order)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded-lg font-bold">รับเงิน</button>
+                                            <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                                                <span className="font-black text-blue-600 text-lg">฿{order.total_amount.toLocaleString()}</span>
+                                                <button onClick={() => setSelectedPendingOrder(order)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded-lg font-bold text-sm">รับเงิน</button>
                                             </div>
                                         </div>
                                     ))}
@@ -626,29 +677,31 @@ export default function POSPage() {
                     ) : (
                         <div className="animate-fade-in">
                             <button onClick={() => setSelectedPendingOrder(null)} className="text-sm text-gray-500 hover:text-gray-800 mb-4 font-bold">← ย้อนกลับไปหน้ารายการ</button>
-                            <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm mb-6 text-center">
+                            <div className="bg-white p-4 md:p-5 rounded-2xl border border-gray-200 shadow-sm mb-4 text-center">
                                 <p className="text-gray-500 text-sm">เลขที่บิล: {selectedPendingOrder.doc_no}</p>
-                                <h3 className="text-3xl font-black text-blue-600 mt-2">{selectedPendingOrder.total_amount.toFixed(2)} ฿</h3>
+                                <h3 className="text-3xl font-black text-blue-600 mt-1">฿{selectedPendingOrder.total_amount.toLocaleString()}</h3>
                             </div>
                             
-                            <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
-                                <label className="block text-sm font-bold text-gray-700 mb-3">เลือกวิธีชำระเงิน (หน้างาน)</label>
+                            <div className="bg-white p-4 md:p-5 rounded-2xl border border-gray-200 shadow-sm">
+                                <label className="block text-sm font-bold text-gray-700 mb-3">เลือกวิธีชำระเงิน</label>
                                 <div className="grid grid-cols-2 gap-3 mb-4">
-                                <button onClick={() => setPaymentMethod("cash")} className={`py-3 rounded-xl font-bold border-2 ${paymentMethod === "cash" ? "border-blue-600 bg-blue-50 text-blue-700" : "border-gray-200 text-gray-500"}`}>เงินสด</button>
-                                <button onClick={() => setPaymentMethod("transfer")} className={`py-3 rounded-xl font-bold border-2 ${paymentMethod === "transfer" ? "border-blue-600 bg-blue-50 text-blue-700" : "border-gray-200 text-gray-500"}`}>โอนเงิน / QR</button>
+                                  <button onClick={() => setPaymentMethod("cash")} className={`py-3 rounded-xl font-bold border-2 transition-all ${paymentMethod === "cash" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}>💵 เงินสด</button>
+                                  <button onClick={() => setPaymentMethod("transfer")} className={`py-3 rounded-xl font-bold border-2 transition-all ${paymentMethod === "transfer" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}>📱 โอนเงิน/QR</button>
                                 </div>
 
                                 {paymentMethod === "transfer" && storeSettings?.promptpay_number && (
                                 <div className="text-center p-4 bg-blue-50 rounded-xl border border-blue-100 flex flex-col items-center">
-                                    <QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, selectedPendingOrder.total_amount)} size={160} />
-                                    <p className="font-bold text-blue-800 mt-3">ให้ลูกค้าสแกน QR Code เพื่อโอนเงิน</p>
+                                    <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-100">
+                                      <QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, selectedPendingOrder.total_amount)} size={140} />
+                                    </div>
+                                    <p className="font-bold text-blue-800 mt-3 text-sm">ให้ลูกค้าสแกน QR เพื่อโอนเงิน</p>
                                 </div>
                                 )}
 
                                 {paymentMethod === "cash" && (
                                 <div className="mt-4">
                                     <label className="block text-sm font-bold text-gray-700 mb-2">รับเงินสดมา</label>
-                                    <input type="number" value={cashReceived} onChange={(e) => setCashReceived(e.target.value ? Number(e.target.value) : "")} className="w-full px-4 py-3 text-lg font-bold border-2 border-gray-300 rounded-xl outline-none" placeholder="0.00" />
+                                    <input type="number" value={cashReceived} onChange={(e) => setCashReceived(e.target.value ? Number(e.target.value) : "")} className="w-full px-4 py-3 text-xl font-bold border-2 border-gray-300 rounded-xl outline-none focus:border-blue-400 transition-all text-center" placeholder="0.00" />
                                 </div>
                                 )}
                             </div>
@@ -657,9 +710,9 @@ export default function POSPage() {
                  </div>
                  
                  {selectedPendingOrder && (
-                    <div className="p-5 bg-white border-t">
-                        <button onClick={handlePayPendingOrder} disabled={isProcessing} className="w-full py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg">
-                            {isProcessing ? "กำลังบันทึก..." : "✅ ยืนยันรับเงิน และออกใบเสร็จ"}
+                    <div className="p-4 bg-white border-t">
+                        <button onClick={handlePayPendingOrder} disabled={isProcessing} className="w-full py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg text-lg flex items-center justify-center gap-2 active:scale-95 transition-all">
+                            {isProcessing ? "กำลังบันทึก..." : "✅ ยืนยันรับเงิน / ออกใบเสร็จ"}
                         </button>
                     </div>
                  )}
@@ -667,71 +720,68 @@ export default function POSPage() {
           </div>
       )}
 
+      {/* --- ส่วนที่ 2: Modal การชำระเงิน / ยืนยันบิล (แทนที่ Pop-up ธรรมดา) --- */}
       {showCheckout && storeSettings && (
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-30 p-4 no-print">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-5 bg-blue-600 text-white flex justify-between items-center">
-              <h2 className="text-xl font-bold">{storeSettings.invoice_title || "ใบแจ้งหนี้"}</h2>
-              <button onClick={() => setShowCheckout(false)} className="text-white font-bold text-xl">✕</button>
+            <div className="p-4 bg-blue-600 text-white flex justify-between items-center rounded-t-3xl">
+              <h2 className="text-lg font-bold flex items-center gap-2">📝 {storeSettings.invoice_title || "รายละเอียดใบแจ้งหนี้"}</h2>
+              <button onClick={() => setShowCheckout(false)} className="text-white font-bold text-2xl w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20">✕</button>
             </div>
             
-            <div className="p-6 overflow-y-auto flex-1 bg-gray-50">
-              <div className="text-center mb-6">
-                {storeSettings.logo_url && (
-                  <div className="w-16 h-16 relative mx-auto mb-2 bg-white rounded-lg shadow-sm border p-1">
-                    <Image src={storeSettings.logo_url} alt="Logo" fill className="object-contain" unoptimized />
-                  </div>
-                )}
-                <h3 className="text-2xl font-black text-gray-800">{storeSettings.name}</h3>
-                <p className="text-sm text-gray-500 mt-1">{storeSettings.address}</p>
+            <div className="p-4 md:p-6 overflow-y-auto flex-1 bg-gray-50">
+              <div className="text-center mb-5">
+                <h3 className="text-xl font-black text-gray-800">{storeSettings.name}</h3>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm mb-6">
-                <div className="space-y-2 mb-4 pb-4 border-b border-dashed border-gray-300">
+              <div className="bg-white p-4 md:p-5 rounded-2xl border border-gray-200 shadow-sm mb-4">
+                <div className="space-y-3 mb-4 pb-4 border-b border-dashed border-gray-300">
                   {cart.map((item, idx) => (
-                    <div key={idx} className="flex flex-col text-sm text-gray-700 mb-2">
-                      <div className="flex justify-between">
-                        <span>{item.cart_qty} x {item.name} {item.is_vat_exempt && "(V0)"}</span>
-                        <span className="font-bold">{(item.price * item.cart_qty).toFixed(2)} ฿</span>
+                    <div key={idx} className="flex flex-col text-sm text-gray-700">
+                      <div className="flex justify-between items-start">
+                        <span className="font-medium pr-2">{item.cart_qty} x {item.name}</span>
+                        <span className="font-bold whitespace-nowrap">฿{(item.price * item.cart_qty).toLocaleString()}</span>
                       </div>
-                      {item.remark && <span className="text-xs text-gray-400 italic mt-1">- {item.remark}</span>}
+                      {item.remark && <span className="text-xs text-orange-600 font-medium bg-orange-50 px-2 py-0.5 rounded-md mt-1 self-start">- หมายเหตุ: {item.remark}</span>}
                     </div>
                   ))}
                 </div>
-                <div className="flex justify-between text-2xl font-black text-blue-600">
-                  <span>ยอดที่ต้องชำระ</span>
-                  <span>{totalAmount.toFixed(2)} ฿</span>
+                <div className="flex justify-between items-center text-xl md:text-2xl font-black text-blue-600 bg-blue-50 p-3 rounded-xl">
+                  <span>ยอดชำระสุทธิ</span>
+                  <span>฿{totalAmount.toLocaleString()}</span>
                 </div>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
-                <label className="block text-sm font-bold text-gray-700 mb-3">เลือกวิธีชำระเงิน</label>
+              <div className="bg-white p-4 md:p-5 rounded-2xl border border-gray-200 shadow-sm">
+                <label className="block text-sm font-bold text-gray-700 mb-3">รูปแบบการชำระเงิน</label>
                 <div className="grid grid-cols-2 gap-3 mb-4">
-                  <button onClick={() => setPaymentMethod("cash")} className={`py-3 rounded-xl font-bold border-2 ${paymentMethod === "cash" ? "border-blue-600 bg-blue-50 text-blue-700" : "border-gray-200 text-gray-500"}`}>เงินสด</button>
-                  <button onClick={() => setPaymentMethod("transfer")} className={`py-3 rounded-xl font-bold border-2 ${paymentMethod === "transfer" ? "border-blue-600 bg-blue-50 text-blue-700" : "border-gray-200 text-gray-500"}`}>โอนเงิน / QR</button>
+                  <button onClick={() => setPaymentMethod("cash")} className={`py-3 rounded-xl font-bold border-2 transition-all flex flex-col items-center justify-center gap-1 ${paymentMethod === "cash" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}><span className="text-2xl">💵</span> เงินสด</button>
+                  <button onClick={() => setPaymentMethod("transfer")} className={`py-3 rounded-xl font-bold border-2 transition-all flex flex-col items-center justify-center gap-1 ${paymentMethod === "transfer" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}><span className="text-2xl">📱</span> โอนเงิน</button>
                 </div>
 
                 {paymentMethod === "transfer" && (
                   <div className="text-center p-4 bg-blue-50 rounded-xl border border-blue-100 flex flex-col items-center">
-                    <p className="font-bold text-blue-800 mb-3">สแกน QR Code พร้อมเพย์</p>
                     {storeSettings.promptpay_number ? (
-                      <div className="bg-white p-3 rounded-xl shadow-sm border">
-                        <QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, totalAmount)} size={160} />
-                      </div>
+                      <>
+                        <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-100">
+                          <QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, totalAmount)} size={150} />
+                        </div>
+                        <p className="font-bold text-blue-800 mt-3 text-sm">สแกนเพื่อโอนเงินเข้าพร้อมเพย์</p>
+                      </>
                     ) : (
-                      <p className="text-red-500 font-bold text-sm">กรุณาไปตั้งค่าเบอร์ PromptPay ในหน้า ตั้งค่าระบบ ก่อน</p>
+                      <p className="text-red-500 font-bold text-sm bg-white p-3 rounded-lg w-full border border-red-200">ยังไม่ได้ตั้งค่าเบอร์ PromptPay ในระบบ</p>
                     )}
                   </div>
                 )}
 
                 {paymentMethod === "cash" && (
-                  <div className="mt-4">
-                    <label className="block text-sm font-bold text-gray-700 mb-2">รับเงินสดมา</label>
-                    <input type="number" value={cashReceived} onChange={(e) => setCashReceived(e.target.value ? Number(e.target.value) : "")} className="w-full px-4 py-3 text-lg font-bold border-2 border-gray-300 rounded-xl outline-none" placeholder="0.00" />
+                  <div className="mt-2 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">รับเงินสดจากลูกค้า (บาท)</label>
+                    <input type="number" value={cashReceived} onChange={(e) => setCashReceived(e.target.value ? Number(e.target.value) : "")} className="w-full px-4 py-3 text-2xl font-black text-center text-gray-800 border-2 border-gray-300 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-all shadow-inner" placeholder="0.00" />
                     {changeAmount > 0 && (
-                      <div className="mt-3 flex justify-between items-center text-lg bg-green-50 text-green-700 p-4 rounded-xl font-black">
-                        <span>เงินทอน</span>
-                        <span>{changeAmount.toFixed(2)} ฿</span>
+                      <div className="mt-4 flex justify-between items-center text-lg bg-green-100 border border-green-300 text-green-800 p-4 rounded-xl font-black shadow-sm animate-pulse-once">
+                        <span>เงินทอนลูกค้า</span>
+                        <span className="text-2xl">฿{changeAmount.toLocaleString()}</span>
                       </div>
                     )}
                   </div>
@@ -739,24 +789,22 @@ export default function POSPage() {
               </div>
             </div>
 
-            <div className="p-5 bg-white border-t flex flex-col gap-3">
+            <div className="p-4 bg-white border-t flex flex-col gap-3 pb-safe">
               <div className="flex gap-3">
-                <button onClick={() => window.print()} className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold px-4 py-4 rounded-xl transition-all flex-1">🖨️ พิมพ์ใบแจ้งหนี้</button>
-                <button onClick={handleSavePendingOrder} disabled={isProcessing} className="bg-orange-500 hover:bg-orange-600 text-white font-bold px-4 py-4 rounded-xl transition-all flex-1 shadow-md">
-                  💾 บันทึกค้างชำระ
+                <button onClick={() => window.print()} className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold px-4 py-3.5 rounded-xl transition-all flex-1 text-sm border border-gray-300 shadow-sm active:scale-95 flex items-center justify-center gap-2">🖨️ พิมพ์ใบแจ้งหนี้</button>
+                <button onClick={handleSavePendingOrder} disabled={isProcessing} className="bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-300 font-bold px-4 py-3.5 rounded-xl transition-all flex-1 shadow-sm text-sm active:scale-95 flex items-center justify-center gap-2">
+                  ⏳ บันทึกค้างชำระ
                 </button>
               </div>
-              <div className="flex gap-3">
-                <button onClick={() => setShowCheckout(false)} className="flex-1 bg-white border-2 border-gray-200 text-gray-600 rounded-xl font-bold py-4">ยกเลิก</button>
-                <button onClick={handleConfirmPayment} disabled={isProcessing} className="flex-[2] py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg">
-                  {isProcessing ? "กำลังบันทึก..." : "ยืนยันรับเงิน / ออกใบเสร็จ"}
-                </button>
-              </div>
+              <button onClick={handleConfirmPayment} disabled={isProcessing} className="w-full py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg text-lg flex items-center justify-center gap-2 active:scale-95 transition-transform">
+                {isProcessing ? "กำลังบันทึก..." : "✅ ยืนยันชำระเงิน / ออกใบเสร็จ"}
+              </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* --- โครงสร้างสำหรับระบบพิมพ์ (ซ่อนอยู่หลังบ้าน จะโชว์ตอนสั่ง Print เท่านั้น) --- */}
       {showCheckout && storeSettings && (
         <div id="invoice-print-area">
           <div className="text-center mb-2">
@@ -786,7 +834,7 @@ export default function POSPage() {
             ))}
           </div>
           <div className="flex justify-between font-black mb-2" style={{ fontSize: '12px' }}>
-            <span>ยอดที่ต้องชำระ</span>
+            <span>ยอดชำระสุทธิ</span>
             <span>{totalAmount.toFixed(2)} ฿</span>
           </div>
           {storeSettings.promptpay_number && (
@@ -794,186 +842,185 @@ export default function POSPage() {
               <div className="flex justify-center">
                 <QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, totalAmount)} size={110} />
               </div>
-              <p style={{ fontSize: '8px' }} className="mt-1">สแกนชำระผ่าน QR Code พร้อมเพย์</p>
+              <p style={{ fontSize: '8px' }} className="mt-1">สแกนชำระผ่าน QR Code</p>
             </div>
           )}
-          <div className="text-center mt-2" style={{ fontSize: '9px' }}>
-            <p>กรุณาชำระเงินตามยอดดังกล่าว</p>
-          </div>
         </div>
       )}
 
+      {/* --- ส่วนที่ 3: Modal ใบเสร็จรับเงิน (ขึ้นเมื่อกดจ่ายเงินสำเร็จ) --- */}
       {receiptData && storeSettings && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col relative">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col relative animate-fade-in-up">
             
-            <div className="p-4 bg-green-50 border-b flex justify-between items-center">
-              <h2 className="font-bold text-green-800">ชำระเงินสำเร็จ</h2>
-              <button onClick={() => setReceiptData(null)} className="text-gray-400 font-bold text-xl">✕</button>
+            <div className="p-4 bg-green-500 text-white flex justify-between items-center rounded-t-3xl">
+              <h2 className="font-bold text-lg flex items-center gap-2">✅ ชำระเงินเรียบร้อย</h2>
+              <button onClick={() => setReceiptData(null)} className="text-white font-bold text-2xl w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20">✕</button>
             </div>
 
             <div className="p-6 bg-white overflow-y-auto max-h-[60vh]">
-              <div className="text-center mb-4">
+              <div className="text-center mb-5 border-b border-dashed border-gray-300 pb-4">
                 {storeSettings.logo_url && (
-                  <div className="flex justify-center mb-2">
-                    <Image src={storeSettings.logo_url} alt="Logo" width={48} height={48} className="object-contain" unoptimized />
+                  <div className="flex justify-center mb-3">
+                    <Image src={storeSettings.logo_url} alt="Logo" width={56} height={56} className="object-contain border border-gray-100 rounded-lg p-1 shadow-sm" unoptimized />
                   </div>
                 )}
-                <h1 className="font-bold text-sm">{storeSettings.name}</h1>
-                <p className="text-gray-600 text-xs">{storeSettings.address}</p>
-                {storeSettings.phone_number && <p className="text-gray-600 text-xs">โทร: {storeSettings.phone_number}</p>}
-                {storeSettings.tax_id && <p className="text-xs">TAX ID: {storeSettings.tax_id}</p>}
+                <h1 className="font-black text-xl text-gray-800">{storeSettings.name}</h1>
+                <p className="text-gray-500 text-xs mt-1 leading-relaxed">{storeSettings.address}</p>
+                {storeSettings.phone_number && <p className="text-gray-500 text-xs font-medium mt-0.5">โทร: {storeSettings.phone_number}</p>}
+                {storeSettings.tax_id && <p className="text-gray-500 text-xs font-medium mt-0.5">TAX ID: {storeSettings.tax_id}</p>}
                 
-                <p className="mt-2 font-bold border-y border-dashed border-gray-300 py-1 text-xs">
+                <div className="mt-4 inline-block bg-gray-100 text-gray-800 px-4 py-1.5 rounded-full font-bold text-sm tracking-wide border border-gray-200">
                   {storeSettings.receipt_title || "ใบเสร็จรับเงิน"}
-                </p>
+                </div>
               </div>
               
-              <div className="flex justify-between mb-2 text-xs">
-                <div>
-                  <p>เลขที่: <span className="font-bold">{receiptData.docNo}</span></p>
-                  <p>วันที่: {receiptData.date.toLocaleString('th-TH')}</p>
+              <div className="flex justify-between mb-4 text-xs bg-gray-50 p-3 rounded-lg border border-gray-100">
+                <div className="space-y-1 text-gray-600">
+                  <p>เลขที่บิล: <span className="font-bold text-gray-800">{receiptData.docNo}</span></p>
+                  <p>วันที่ทำรายการ: <span className="font-medium">{receiptData.date.toLocaleString('th-TH')}</span></p>
                 </div>
               </div>
 
-              <div className="space-y-1 mb-2 border-b border-dashed border-gray-300 pb-2 text-xs">
+              <div className="space-y-3 mb-4 border-b border-dashed border-gray-300 pb-4">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">รายการสินค้า</p>
                 {receiptData.items.map((item, idx) => (
-                  <div key={idx} className="flex flex-col mb-2">
-                    <div className="flex justify-between">
+                  <div key={idx} className="flex flex-col text-sm">
+                    <div className="flex justify-between items-start">
                       <div className="flex-1 pr-2">
-                        <p className="font-bold">{item.name} {item.is_vat_exempt && <span className="text-[10px]">(V0)</span>}</p>
-                        <p className="text-[10px] text-gray-500">{item.cart_qty} x {item.price.toFixed(2)}</p>
+                        <p className="font-bold text-gray-800">{item.name} {item.is_vat_exempt && <span className="text-[10px] text-orange-500">(V0)</span>}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{item.cart_qty} ชิ้น x ฿{item.price.toLocaleString()}</p>
                       </div>
-                      <div className="text-right font-bold pt-1">
-                        {(item.price * item.cart_qty).toFixed(2)}
+                      <div className="text-right font-bold text-gray-800">
+                        ฿{(item.price * item.cart_qty).toLocaleString()}
                       </div>
                     </div>
-                    {item.remark && <span className="text-[10px] text-gray-400 italic mt-1">- {item.remark}</span>}
+                    {item.remark && <span className="text-[11px] text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md mt-1 self-start inline-block">- {item.remark}</span>}
                   </div>
                 ))}
               </div>
 
-              <div className="space-y-1 mb-2 border-b border-dashed border-gray-300 pb-2 text-xs">
+              <div className="space-y-2 mb-4 border-b border-dashed border-gray-300 pb-4 text-xs text-gray-600">
                 <div className="flex justify-between">
                   <span>มูลค่ายกเว้นภาษี (VAT 0%)</span>
-                  <span>{receiptData.totalExempt.toFixed(2)}</span>
+                  <span className="font-medium">฿{receiptData.totalExempt.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>มูลค่าสินค้าก่อน VAT</span>
-                  <span>{receiptData.totalVatable.toFixed(2)}</span>
+                  <span className="font-medium">฿{receiptData.totalVatable.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>ภาษีมูลค่าเพิ่ม (VAT 7%)</span>
-                  <span>{receiptData.vatAmount.toFixed(2)}</span>
+                  <span className="font-medium">฿{receiptData.vatAmount.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between font-black mt-1 text-sm">
+                <div className="flex justify-between font-black mt-3 text-base text-gray-900 bg-gray-100 p-2 rounded-lg">
                   <span>ยอดสุทธิ</span>
-                  <span>{receiptData.totalAmount.toFixed(2)}</span>
+                  <span className="text-blue-600">฿{receiptData.totalAmount.toLocaleString()}</span>
                 </div>
               </div>
 
-              <div className="space-y-1 mb-6 text-xs">
-                <div className="flex justify-between">
+              <div className="space-y-2 mb-6 text-sm">
+                <div className="flex justify-between text-gray-700">
                   <span>รับเงิน ({receiptData.paymentMethod === 'cash' ? 'เงินสด' : 'โอนเงิน'})</span>
-                  <span>{receiptData.paymentMethod === 'cash' ? Number(receiptData.cashReceived).toFixed(2) : receiptData.totalAmount.toFixed(2)}</span>
+                  <span className="font-bold">฿{receiptData.paymentMethod === 'cash' ? Number(receiptData.cashReceived).toLocaleString() : receiptData.totalAmount.toLocaleString()}</span>
                 </div>
                 {receiptData.changeAmount > 0 && (
-                  <div className="flex justify-between font-bold">
+                  <div className="flex justify-between font-bold text-green-600">
                     <span>เงินทอน</span>
-                    <span>{receiptData.changeAmount.toFixed(2)}</span>
+                    <span>฿{receiptData.changeAmount.toLocaleString()}</span>
                   </div>
                 )}
               </div>
 
-              <div className="text-center text-gray-500 text-[10px]">
-                <p>{storeSettings.receipt_footer || "ขอขอบคุณที่มาอุดหนุนและใช้บริการ"}</p>
-                <p>Powered by POS System</p>
+              <div className="text-center text-gray-400 text-xs mt-8">
+                <p className="font-medium text-gray-600">{storeSettings.receipt_footer || "ขอขอบคุณที่มาอุดหนุนและใช้บริการ"}</p>
+                <p className="mt-1 text-[10px]">Powered by POS System</p>
               </div>
             </div>
 
-            <div className="p-4 bg-gray-50 border-t flex gap-3">
-              <button onClick={() => setReceiptData(null)} className="flex-1 bg-white border border-gray-300 text-gray-700 font-bold py-3 rounded-xl">ปิด</button>
-              <button onClick={() => window.print()} className="flex-[2] bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md">พิมพ์สลิป (58mm)</button>
+            <div className="p-4 bg-white border-t border-gray-100 flex gap-3 shadow-[0_-10px_20px_rgba(0,0,0,0.02)]">
+              <button onClick={() => setReceiptData(null)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3.5 rounded-xl transition-colors">ปิดหน้านี้</button>
+              <button onClick={() => window.print()} className="flex-[2] bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-200 active:scale-95 transition-transform flex items-center justify-center gap-2">🖨️ พิมพ์สลิป (58mm)</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* --- โครงสร้างใบเสร็จสำหรับปริ้นท์ --- */}
       {receiptData && storeSettings && (
         <div id="receipt-print-area">
           <div className="text-center mb-2">
             {storeSettings.logo_url && (
               <div className="flex justify-center mb-1">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={storeSettings.logo_url} alt="Logo" crossOrigin="anonymous" style={{ maxWidth: '50px', height: 'auto', objectFit: 'contain' }} />
+                <img src={storeSettings.logo_url} alt="Logo" crossOrigin="anonymous" style={{ maxWidth: '40px', height: 'auto', objectFit: 'contain' }} />
               </div>
             )}
-            <h1 className="font-bold" style={{ fontSize: '14px' }}>{storeSettings.name}</h1>
-            <p style={{ fontSize: '9px' }}>{storeSettings.address}</p>
-            {storeSettings.phone_number && <p style={{ fontSize: '9px' }}>โทร: {storeSettings.phone_number}</p>}
-            {storeSettings.tax_id && <p style={{ fontSize: '9px' }}>TAX ID: {storeSettings.tax_id}</p>}
-            <p className="mt-1 font-bold border-y border-dashed border-gray-400 py-1" style={{ fontSize: '11px' }}>
+            <h1 className="font-bold" style={{ fontSize: '12px' }}>{storeSettings.name}</h1>
+            <p style={{ fontSize: '8px' }}>{storeSettings.address}</p>
+            {storeSettings.phone_number && <p style={{ fontSize: '8px' }}>โทร: {storeSettings.phone_number}</p>}
+            {storeSettings.tax_id && <p style={{ fontSize: '8px' }}>TAX ID: {storeSettings.tax_id}</p>}
+            <p className="mt-1 font-bold border-y border-dashed border-gray-400 py-1" style={{ fontSize: '10px' }}>
               {storeSettings.receipt_title || "ใบเสร็จรับเงิน"}
             </p>
           </div>
 
-          <div className="flex justify-between mb-1" style={{ fontSize: '9px' }}>
+          <div className="flex justify-between mb-2" style={{ fontSize: '8px' }}>
             <div>
-              <p>เลขที่: <span className="font-bold">{receiptData.docNo}</span></p>
+              <p>บิล: <span className="font-bold">{receiptData.docNo}</span></p>
               <p>วันที่: {receiptData.date.toLocaleString('th-TH')}</p>
             </div>
           </div>
 
-          <div className="space-y-1 mb-2 border-b border-dashed border-gray-400 pb-2" style={{ fontSize: '10px' }}>
+          <div className="space-y-1 mb-2 border-b border-dashed border-gray-400 pb-2" style={{ fontSize: '9px' }}>
             {receiptData.items.map((item, idx) => (
               <div key={idx} className="flex justify-between items-start mb-1">
                 <div className="flex-1 pr-1">
-                  <p className="font-bold">{item.name} {item.is_vat_exempt && <span style={{ fontSize: '8px' }}>(V0)</span>}</p>
-                  {item.remark && <p style={{ fontSize: '8px', fontStyle: 'italic', color: '#555' }}>- {item.remark}</p>}
-                  <p style={{ fontSize: '8px' }}>{item.cart_qty} x {item.price.toFixed(2)}</p>
+                  <p className="font-bold">{item.name} {item.is_vat_exempt && <span style={{ fontSize: '7px' }}>(V0)</span>}</p>
+                  {item.remark && <p style={{ fontSize: '7px', fontStyle: 'italic', color: '#555' }}>- {item.remark}</p>}
+                  <p style={{ fontSize: '8px' }}>{item.cart_qty} x {item.price.toLocaleString()}</p>
                 </div>
                 <div className="text-right font-bold pt-1">
-                  {(item.price * item.cart_qty).toFixed(2)}
+                  {(item.price * item.cart_qty).toLocaleString()}
                 </div>
               </div>
             ))}
           </div>
 
-          <div className="space-y-1 mb-2 border-b border-dashed border-gray-400 pb-2" style={{ fontSize: '9px' }}>
+          <div className="space-y-1 mb-2 border-b border-dashed border-gray-400 pb-2" style={{ fontSize: '8px' }}>
             <div className="flex justify-between">
-              <span>มูลค่ายกเว้นภาษี (VAT 0%)</span>
-              <span>{receiptData.totalExempt.toFixed(2)}</span>
+              <span>ยกเว้นภาษี (VAT 0%)</span>
+              <span>{receiptData.totalExempt.toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
-              <span>มูลค่าสินค้าก่อน VAT</span>
-              <span>{receiptData.totalVatable.toFixed(2)}</span>
+              <span>ก่อน VAT</span>
+              <span>{receiptData.totalVatable.toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
-              <span>ภาษีมูลค่าเพิ่ม (VAT 7%)</span>
-              <span>{receiptData.vatAmount.toFixed(2)}</span>
+              <span>VAT 7%</span>
+              <span>{receiptData.vatAmount.toLocaleString()}</span>
             </div>
-            <div className="flex justify-between font-black mt-1" style={{ fontSize: '12px' }}>
+            <div className="flex justify-between font-black mt-1" style={{ fontSize: '11px' }}>
               <span>ยอดสุทธิ</span>
-              <span>{receiptData.totalAmount.toFixed(2)}</span>
+              <span>{receiptData.totalAmount.toLocaleString()}</span>
             </div>
           </div>
 
-          <div className="space-y-1 mb-4" style={{ fontSize: '9px' }}>
+          <div className="space-y-1 mb-3" style={{ fontSize: '8px' }}>
             <div className="flex justify-between">
-              <span>รับเงิน ({receiptData.paymentMethod === 'cash' ? 'เงินสด' : 'โอนเงิน'})</span>
-              <span>{receiptData.paymentMethod === 'cash' ? Number(receiptData.cashReceived).toFixed(2) : receiptData.totalAmount.toFixed(2)}</span>
+              <span>รับเงิน ({receiptData.paymentMethod === 'cash' ? 'สด' : 'โอน'})</span>
+              <span>{receiptData.paymentMethod === 'cash' ? Number(receiptData.cashReceived).toLocaleString() : receiptData.totalAmount.toLocaleString()}</span>
             </div>
             {receiptData.changeAmount > 0 && (
               <div className="flex justify-between font-bold">
                 <span>เงินทอน</span>
-                <span>{receiptData.changeAmount.toFixed(2)}</span>
+                <span>{receiptData.changeAmount.toLocaleString()}</span>
               </div>
             )}
           </div>
 
           <div className="text-center text-gray-600" style={{ fontSize: '8px' }}>
-            <p>{storeSettings.receipt_footer || "ขอขอบคุณที่มาอุดหนุนและใช้บริการ"}</p>
-            <p>Powered by POS System</p>
+            <p className="font-bold">{storeSettings.receipt_footer || "ขอบคุณที่ใช้บริการ"}</p>
           </div>
         </div>
       )}
