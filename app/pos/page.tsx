@@ -212,6 +212,7 @@ export default function POSPage() {
 
   return (
     <>
+      {/* 🖨️ CSS ระบบพิมพ์แบบ Thermal 58mm ตามต้นฉบับ[cite: 3, 5] */}
       <style dangerouslySetInnerHTML={{
         __html: `
         @media screen { .print-area { display: none; } }
@@ -336,7 +337,7 @@ export default function POSPage() {
                         <span className="font-bold">{item.cart_qty} x {item.name}</span>
                         <span className="font-black text-blue-600">฿{(item.price * item.cart_qty).toLocaleString()}</span>
                       </div>
-                      {item.remark && <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded mt-1 self-start">- หมายเหตุ: {item.remark}</span>}
+                      {item.remark && <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded mt-1 self-start">- {item.remark}</span>}
                     </div>
                   ))}
                 </div>
@@ -429,7 +430,7 @@ export default function POSPage() {
                     <div className="flex-1 overflow-y-auto bg-white p-3 rounded-xl border border-gray-200 shadow-sm mb-3">
                       <p className="font-bold text-gray-800 mb-2 border-b pb-1 text-sm">รายการสินค้า:</p>
                       <div className="space-y-2">
-                        {selectedPendingOrder.order_items.map((item: { qty: number; unit_price: number; remark?: string; products?: { name: string; is_vat_exempt: boolean; } }, idx: number) => (
+                        {selectedPendingOrder.order_items.map((item, idx) => (
                           <div key={idx} className="flex justify-between text-xs">
                             <div>
                               <p className="font-bold text-gray-700">{item.qty} x {item.products?.name || "สินค้า"} {item.products?.is_vat_exempt && <span className="text-[9px] text-red-500">(V0)</span>}</p>
@@ -556,24 +557,24 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* 🖨️ โครงสร้างการพิมพ์ (แก้ไขให้หน้าตาเหมือนต้นฉบับ MATCHA 232) */}
+      {/* 🖨️ โครงสร้างการพิมพ์ที่จัดรูปแบบตามต้นฉบับอย่างสมบูรณ์[cite: 3, 5] */}
       <div className="print-area">
         {showCheckout && !receiptData && (
           <div>
-            <div style={{ textAlign: 'center', marginBottom: '4px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '6px' }}>
               {storeSettings?.logo_url && <img src={storeSettings.logo_url} alt="Logo" />}
-              <h1 style={{ fontWeight: 'bold', fontSize: '14px', margin: 0 }}>{storeSettings?.name}</h1>
-              <p style={{ margin: '2px 0' }}>{storeSettings?.address}</p>
-              <p style={{ margin: '2px 0' }}>โทร: {storeSettings?.phone_number}</p>
-              <p style={{ fontSize: '12px', margin: '4px 0', fontWeight: 'bold', borderBottom: '1px dashed #000', paddingBottom: '2px' }}>{storeSettings?.invoice_title || "ใบแจ้งหนี้"}</p>
+              <h1 style={{ fontWeight: 'bold', fontSize: '13px', margin: 0 }}>{storeSettings?.name}</h1>
+              <p style={{ margin: '2px 0', fontSize: '9px' }}>{storeSettings?.address}</p>
+              <p style={{ margin: '2px 0', fontSize: '9px' }}>โทร: {storeSettings?.phone_number}</p>
+              <p style={{ fontSize: '11px', margin: '4px 0', fontWeight: 'bold', borderBottom: '1px dashed #000', paddingBottom: '2px' }}>{storeSettings?.invoice_title || "ใบแจ้งหนี้"}</p>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '9px' }}>
               <span>เลขที่: {tempInvoiceNo}</span>
               <span>วันที่: {new Date().toLocaleDateString('th-TH')}</span>
             </div>
             <div style={{ borderBottom: '1px dashed #000', paddingBottom: '4px', marginBottom: '4px' }}>
               {cart.map((item, idx) => (
-                <div key={idx} style={{ marginBottom: '2px' }}>
+                <div key={idx} style={{ marginBottom: '3px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>{item.name} {item.is_vat_exempt && "(V0)"}</span>
                     <span>{(item.price * item.cart_qty).toFixed(2)}</span>
@@ -583,36 +584,40 @@ export default function POSPage() {
                 </div>
               ))}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px' }}>
               <span>ยอดที่ต้องชำระ</span><span>{totalAmount.toFixed(2)} ฿</span>
             </div>
             {storeSettings?.promptpay_number && paymentMethod === 'transfer' && (
               <div style={{ textAlign: 'center', marginTop: '6px' }}>
                 <QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, totalAmount)} size={90} />
-                <p style={{ fontSize: '9px', margin: '4px 0 0 0' }}>สแกนชำระผ่าน QR Code พร้อมเพย์</p>
-                <p style={{ fontSize: '9px', margin: '2px 0 0 0' }}>กรุณาชำระเงินตามยอดดังกล่าว</p>
+                <p style={{ fontSize: '8px', margin: '4px 0 0 0' }}>สแกนชำระผ่าน QR Code พร้อมเพย์</p>
+                <p style={{ fontSize: '8px', margin: '2px 0 0 0' }}>กรุณาชำระเงินตามยอดดังกล่าว</p>
               </div>
             )}
+            <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '8px' }}>
+              <p style={{ margin: 0 }}>{storeSettings?.receipt_footer || "ขอขอบคุณที่มาอุดหนุนและใช้บริการ"}</p>
+              <p style={{ margin: '2px 0 0 0' }}>Powered by POS System</p>
+            </div>
           </div>
         )}
 
         {receiptData && storeSettings && (
           <div>
-            <div style={{ textAlign: 'center', marginBottom: '4px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '6px' }}>
               {storeSettings.logo_url && <img src={storeSettings.logo_url} alt="Logo" />}
-              <h1 style={{ fontWeight: 'bold', fontSize: '14px', margin: 0 }}>{storeSettings.name}</h1>
-              <p style={{ margin: '2px 0' }}>{storeSettings.address}</p>
-              <p style={{ margin: '2px 0' }}>โทร: {storeSettings.phone_number}</p>
-              <p style={{ margin: '2px 0' }}>TAX ID: {storeSettings.tax_id}</p>
-              <p style={{ fontSize: '12px', fontWeight: 'bold', margin: '4px 0', borderBottom: '1px dashed #000', paddingBottom: '2px' }}>{storeSettings.receipt_title || "ใบเสร็จรับเงิน"}</p>
+              <h1 style={{ fontWeight: 'bold', fontSize: '13px', margin: 0 }}>{storeSettings.name}</h1>
+              <p style={{ margin: '2px 0', fontSize: '9px' }}>{storeSettings.address}</p>
+              <p style={{ margin: '2px 0', fontSize: '9px' }}>โทร: {storeSettings.phone_number}</p>
+              <p style={{ margin: '2px 0', fontSize: '9px' }}>TAX ID: {storeSettings.tax_id}</p>
+              <p style={{ fontSize: '11px', fontWeight: 'bold', margin: '4px 0', borderBottom: '1px dashed #000', paddingBottom: '2px' }}>{storeSettings.receipt_title || "ใบเสร็จรับเงิน"}</p>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '9px' }}>
               <span>เลขที่: {receiptData.docNo}</span>
-              <span>วันที่: {receiptData.date.toLocaleDateString('th-TH')}</span>
+              <span>วันที่: {receiptData.date.toLocaleString('th-TH')}</span>
             </div>
             <div style={{ borderBottom: '1px dashed #000', paddingBottom: '4px', marginBottom: '4px' }}>
               {receiptData.items.map((item, idx) => (
-                <div key={idx} style={{ marginBottom: '2px' }}>
+                <div key={idx} style={{ marginBottom: '3px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>{item.name} {item.is_vat_exempt && "(V0)"}</span>
                     <span>{(item.price * item.cart_qty).toFixed(2)}</span>
@@ -631,7 +636,7 @@ export default function POSPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>ภาษีมูลค่าเพิ่ม (VAT 7%)</span><span>{receiptData.vatAmount.toFixed(2)}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '12px', margin: '4px 0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px', margin: '4px 0' }}>
               <span>ยอดสุทธิ</span><span>{receiptData.totalAmount.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -642,9 +647,9 @@ export default function POSPage() {
                 <span>เงินทอน</span><span>{receiptData.changeAmount.toFixed(2)}</span>
               </div>
             )}
-            <div style={{ textAlign: 'center', marginTop: '6px' }}>
+            <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '8px' }}>
               <p style={{ margin: 0 }}>{storeSettings.receipt_footer || "ขอขอบคุณที่มาอุดหนุนและใช้บริการ"}</p>
-              <p style={{ margin: '2px 0 0 0', fontSize: '8px' }}>Powered by POS System</p>
+              <p style={{ margin: '2px 0 0 0' }}>Powered by POS System</p>
             </div>
           </div>
         )}
