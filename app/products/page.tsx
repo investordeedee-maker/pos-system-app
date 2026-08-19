@@ -162,7 +162,7 @@ export default function ProductsPage() {
         stock_qty: formData.stock_qty,
         unit: formData.unit,
         sort_order: formData.sort_order,
-        is_vat_exempt: formData.is_vat_exempt,
+        is_vat_exempt: formData.is_vat_exempt, 
         image_url: formData.image_url,
       };
 
