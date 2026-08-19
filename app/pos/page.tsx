@@ -6,48 +6,20 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../../lib/supabase";
 
-interface Product {
-  id: string; name: string; price: number; sell_price: number;
-  stock_qty: number; is_vat_exempt: boolean; image_url: string;
-}
-
+interface Product { id: string; name: string; price: number; sell_price: number; stock_qty: number; is_vat_exempt: boolean; image_url: string; }
 interface CartItem extends Product { cart_qty: number; remark?: string; }
-
-interface StoreSettings {
-  id: string; name: string; address: string; logo_url: string;
-  promptpay_number: string; phone_number: string; receipt_title: string;
-  invoice_title: string; tax_id: string; receipt_footer: string;
-}
-
-interface ReceiptData {
-  docNo: string; items: CartItem[]; totalAmount: number; totalExempt: number;
-  totalVatable: number; vatAmount: number; paymentMethod: string;
-  cashReceived: number | ""; changeAmount: number; date: Date;
-}
-
-interface PendingOrderItem {
-  product_id: string; unit_price: number; qty: number; remark?: string;
-  products?: { name: string; is_vat_exempt: boolean; };
-}
-
-interface PendingOrder {
-  id: string; doc_no: string; created_at: string; total_amount: number;
-  order_items: PendingOrderItem[];
-}
-
-interface CustomWindow extends Window {
-  webkitAudioContext?: typeof AudioContext;
-}
+interface StoreSettings { id: string; name: string; address: string; logo_url: string; promptpay_number: string; phone_number: string; receipt_title: string; invoice_title: string; tax_id: string; receipt_footer: string; }
+interface ReceiptData { docNo: string; items: CartItem[]; totalAmount: number; totalExempt: number; totalVatable: number; vatAmount: number; paymentMethod: string; cashReceived: number | ""; changeAmount: number; date: Date; }
+interface PendingOrderItem { product_id: string; unit_price: number; qty: number; remark?: string; products?: { name: string; is_vat_exempt: boolean; }; }
+interface PendingOrder { id: string; doc_no: string; created_at: string; total_amount: number; order_items: PendingOrderItem[]; }
+interface CustomWindow extends Window { webkitAudioContext?: typeof AudioContext; }
 
 function generatePromptPayPayload(mobileOrId: string, amount: number): string {
   const cleanId = mobileOrId.replace(/[^0-9]/g, "");
   let targetField = "";
-  if (cleanId.length === 10) {
-    const formattedMobile = "0066" + cleanId.substring(1);
-    targetField = "0066" + formattedMobile.length.toString().padStart(2, "0") + formattedMobile;
-  } else if (cleanId.length === 13) {
-    targetField = "0213" + cleanId;
-  } else return "";
+  if (cleanId.length === 10) targetField = "0066" + cleanId.substring(1).length.toString().padStart(2, "0") + "0066" + cleanId.substring(1);
+  else if (cleanId.length === 13) targetField = "0213" + cleanId;
+  else return "";
 
   const merchantAccountInfo = "0016A000000677010111" + targetField;
   const tag29 = "29" + merchantAccountInfo.length.toString().padStart(2, "0") + merchantAccountInfo;
@@ -57,10 +29,7 @@ function generatePromptPayPayload(mobileOrId: string, amount: number): string {
   let crc = 0xFFFF;
   for (let i = 0; i < payloadWithoutCrc.length; i++) {
     crc ^= payloadWithoutCrc.charCodeAt(i) << 8;
-    for (let j = 0; j < 8; j++) {
-      if ((crc & 0x8000) !== 0) crc = (crc << 1) ^ 0x1021;
-      else crc = crc << 1;
-    }
+    for (let j = 0; j < 8; j++) crc = (crc & 0x8000) !== 0 ? (crc << 1) ^ 0x1021 : crc << 1;
   }
   return payloadWithoutCrc + (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
 }
@@ -69,31 +38,22 @@ let audioCtx: AudioContext | null = null;
 const playBeep = () => {
   try {
     if (!audioCtx) {
-      const AudioContextClass = window.AudioContext || (window as unknown as CustomWindow).webkitAudioContext;
+      const AudioContextClass = window.AudioContext || (window as CustomWindow).webkitAudioContext;
       if (AudioContextClass) audioCtx = new AudioContextClass();
     }
     if (!audioCtx) return;
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.type = "sine"; osc.frequency.setValueAtTime(800, audioCtx.currentTime);
     gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.1);
-    
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.1);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.1);
   } catch { }
 };
 
-const playSuccessBeep = () => {
-  playBeep();
-  setTimeout(playBeep, 150);
-};
+const playSuccessBeep = () => { playBeep(); setTimeout(playBeep, 150); };
 
 export default function POSPage() {
   const router = useRouter();
@@ -110,10 +70,10 @@ export default function POSPage() {
   
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [savedPendingReceipt, setSavedPendingReceipt] = useState<ReceiptData | null>(null); 
-  
   const [showPendingModal, setShowPendingModal] = useState(false);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [selectedPendingOrder, setSelectedPendingOrder] = useState<PendingOrder | null>(null);
+  const [tempInvoiceNo, setTempInvoiceNo] = useState<string>("");
 
   useEffect(() => {
     let isMounted = true;
@@ -128,8 +88,7 @@ export default function POSPage() {
           const { data: productsData } = await supabase.from("products").select("*").eq("store_id", profile.store_id).order("sort_order", { ascending: true }).order("created_at", { ascending: false });
           if (productsData) setProducts(productsData.map((p: Product) => ({ ...p, price: p.sell_price })));
         }
-      } catch { } 
-      finally { if (isMounted) setLoading(false); }
+      } catch { } finally { if (isMounted) setLoading(false); }
     };
     initPOS();
     return () => { isMounted = false; };
@@ -140,10 +99,7 @@ export default function POSPage() {
     if (product.stock_qty <= 0) return;
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
-      if (existing) {
-        if (existing.cart_qty >= product.stock_qty) return prev;
-        return prev.map((item) => item.id === product.id ? { ...item, cart_qty: item.cart_qty + 1 } : item);
-      }
+      if (existing) return prev.map((item) => item.id === product.id ? { ...item, cart_qty: item.cart_qty + 1 } : item);
       return [...prev, { ...product, cart_qty: 1, remark: "" }];
     });
   };
@@ -165,20 +121,23 @@ export default function POSPage() {
   const grossVatable = totalAmount - totalExempt;
   const totalVatable = grossVatable / 1.07;
   const vatAmount = grossVatable - totalVatable;
-  
   const parsedCash = parseFloat(cashReceived) || 0;
   const changeAmount = paymentMethod === "cash" && cashReceived !== "" ? parsedCash - totalAmount : 0;
-  
   const filteredProducts = products.filter((p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  const openCheckout = () => {
+    playBeep();
+    setPaymentMethod("cash"); setCashReceived(""); setShowCheckout(true);
+    const now = new Date();
+    setTempInvoiceNo(`IV${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-TEMP`);
+  };
 
   const loadPendingOrders = async () => {
     playBeep();
     if (!storeSettings?.id) return;
     try {
-      const { data, error } = await supabase.from("orders").select(`*, order_items(*, products(*))`).eq("store_id", storeSettings.id).eq("status", "pending").order("created_at", { ascending: false });
-      if (error) throw error;
-      setPendingOrders(data || []);
-      setShowPendingModal(true);
+      const { data } = await supabase.from("orders").select(`*, order_items(*, products(*))`).eq("store_id", storeSettings.id).eq("status", "pending").order("created_at", { ascending: false });
+      setPendingOrders(data || []); setShowPendingModal(true);
     } catch { }
   };
 
@@ -194,29 +153,21 @@ export default function POSPage() {
       if (lastOrder && lastOrder.length > 0 && lastOrder[0].doc_no) runningNum = parseInt(lastOrder[0].doc_no.split("-")[1], 10) + 1;
       const docNo = `${prefix}${runningNum.toString().padStart(4, '0')}`;
 
-      const { data: orderData, error: orderError } = await supabase.from("orders").insert([{ store_id: storeSettings.id, doc_no: docNo, order_source: "POS", status: "pending", total_amount: totalAmount, payment_method: "cash" }]).select().single();
-      if (orderError) throw orderError;
-
+      const { data: orderData } = await supabase.from("orders").insert([{ store_id: storeSettings.id, doc_no: docNo, order_source: "POS", status: "pending", total_amount: totalAmount, payment_method: "cash" }]).select().single();
       const orderItemsToInsert = cart.map((item) => ({ order_id: orderData.id, product_id: item.id, qty: item.cart_qty, unit_price: item.price, remark: item.remark || "" }));
       await supabase.from("order_items").insert(orderItemsToInsert);
-
       for (const item of cart) await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
+      
       setProducts(prev => prev.map(p => { const sold = cart.find(c => c.id === p.id); return sold ? { ...p, stock_qty: p.stock_qty - sold.cart_qty } : p; }));
-
       setSavedPendingReceipt({ docNo, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod: 'pending', cashReceived: "", changeAmount: 0, date: now });
-      playSuccessBeep();
-      setCart([]); setShowCheckout(false);
-    } catch { } 
-    finally { setIsProcessing(false); }
+      playSuccessBeep(); setCart([]); setShowCheckout(false);
+    } catch { } finally { setIsProcessing(false); }
   };
 
   const handleConfirmPayment = async () => {
     playBeep();
     if (!storeSettings?.id || cart.length === 0) return;
-    if (paymentMethod === "cash" && (cashReceived === "" || parsedCash < totalAmount)) {
-      alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วนก่อนกดยืนยันชำระเงิน");
-      return;
-    }
+    if (paymentMethod === "cash" && (cashReceived === "" || parsedCash < totalAmount)) { alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วนก่อนกดยืนยันชำระเงิน"); return; }
     setIsProcessing(true);
     try {
       const now = new Date();
@@ -226,84 +177,59 @@ export default function POSPage() {
       if (lastOrder && lastOrder.length > 0 && lastOrder[0].doc_no) runningNum = parseInt(lastOrder[0].doc_no.split("-")[1], 10) + 1;
       const docNo = `${prefix}${runningNum.toString().padStart(4, '0')}`;
 
-      const { data: orderData, error: orderError } = await supabase.from("orders").insert([{ store_id: storeSettings.id, doc_no: docNo, order_source: "POS", status: "completed", total_amount: totalAmount, payment_method: paymentMethod }]).select().single();
-      if (orderError) throw orderError;
-
+      const { data: orderData } = await supabase.from("orders").insert([{ store_id: storeSettings.id, doc_no: docNo, order_source: "POS", status: "completed", total_amount: totalAmount, payment_method: paymentMethod }]).select().single();
       const orderItemsToInsert = cart.map((item) => ({ order_id: orderData.id, product_id: item.id, qty: item.cart_qty, unit_price: item.price, remark: item.remark || "" }));
       await supabase.from("order_items").insert(orderItemsToInsert);
-
       for (const item of cart) await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
+      
       setProducts(prev => prev.map(p => { const sold = cart.find(c => c.id === p.id); return sold ? { ...p, stock_qty: p.stock_qty - sold.cart_qty } : p; }));
-
       setReceiptData({ docNo, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod, cashReceived: parsedCash, changeAmount, date: now });
-      playSuccessBeep();
-      setCart([]); setShowCheckout(false); setCashReceived("");
-    } catch { } 
-    finally { setIsProcessing(false); }
+      playSuccessBeep(); setCart([]); setShowCheckout(false); setCashReceived("");
+    } catch { } finally { setIsProcessing(false); }
   };
 
   const handlePayPendingOrder = async () => {
     playBeep();
     if (!selectedPendingOrder) return;
     const orderTotal = selectedPendingOrder.total_amount;
-    
-    if (paymentMethod === "cash" && (cashReceived === "" || parsedCash < orderTotal)) {
-      alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วนก่อนกดยืนยันชำระเงิน");
-      return;
-    }
+    if (paymentMethod === "cash" && (cashReceived === "" || parsedCash < orderTotal)) { alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วนก่อนกดยืนยันชำระเงิน"); return; }
     setIsProcessing(true);
     try {
       await supabase.from("orders").update({ status: "completed", payment_method: paymentMethod }).eq("id", selectedPendingOrder.id);
-      
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mappedItems: CartItem[] = selectedPendingOrder.order_items.map((oi: any) => ({ 
-        id: oi.product_id, name: oi.products?.name || "สินค้า", price: oi.unit_price, 
-        cart_qty: oi.qty, is_vat_exempt: oi.products?.is_vat_exempt || false, 
-        remark: oi.remark || "", stock_qty: 0, sell_price: 0, image_url: "" 
-      }));
+      const mappedItems: CartItem[] = selectedPendingOrder.order_items.map((oi: PendingOrderItem) => ({ id: oi.product_id, name: oi.products?.name || "สินค้า", price: oi.unit_price, cart_qty: oi.qty, is_vat_exempt: oi.products?.is_vat_exempt || false, remark: oi.remark || "", stock_qty: 0, sell_price: 0, image_url: "" }));
       const tExempt = mappedItems.filter(item => item.is_vat_exempt).reduce((sum, item) => sum + item.price * item.cart_qty, 0);
-      const gVatable = selectedPendingOrder.total_amount - tExempt;
+      const gVatable = orderTotal - tExempt;
       const tVatable = gVatable / 1.07;
       const vAmount = gVatable - tVatable;
-      const cAmount = paymentMethod === "cash" && cashReceived !== "" ? parsedCash - selectedPendingOrder.total_amount : 0;
+      const cAmount = paymentMethod === "cash" && cashReceived !== "" ? parsedCash - orderTotal : 0;
 
-      setReceiptData({ docNo: selectedPendingOrder.doc_no, items: mappedItems, totalAmount: selectedPendingOrder.total_amount, totalExempt: tExempt, totalVatable: tVatable, vatAmount: vAmount, paymentMethod, cashReceived: parsedCash, changeAmount: cAmount, date: new Date() });
-      playSuccessBeep();
-      setSelectedPendingOrder(null); setShowPendingModal(false); setCashReceived("");
-    } catch { } 
-    finally { setIsProcessing(false); }
+      setReceiptData({ docNo: selectedPendingOrder.doc_no, items: mappedItems, totalAmount: orderTotal, totalExempt: tExempt, totalVatable: tVatable, vatAmount: vAmount, paymentMethod, cashReceived: parsedCash, changeAmount: cAmount, date: new Date() });
+      playSuccessBeep(); setSelectedPendingOrder(null); setShowPendingModal(false); setCashReceived("");
+    } catch { } finally { setIsProcessing(false); }
   };
 
   if (loading) return <div className="flex min-h-screen items-center justify-center font-bold text-gray-500">กำลังโหลดระบบ POS...</div>;
 
   return (
     <>
-      {/* 🖨️ CSS ระบบพิมพ์ ปรับให้ใช้กับ Thermal Printer ได้ 100% */}
       <style dangerouslySetInnerHTML={{
         __html: `
-        .print-only { display: none; }
+        @media screen { .print-area { display: none; } }
         @media print {
           @page { margin: 0; size: 58mm auto; }
-          body, html { margin: 0 !important; padding: 0 !important; background: white !important; height: auto !important; overflow: visible !important; }
           body * { visibility: hidden; }
-          .print-only, .print-only * { visibility: visible; }
-          .print-only { 
-            display: block !important; 
-            position: absolute; 
-            left: 0; top: 0; 
-            width: 58mm; 
-            padding: 2mm; 
-            color: #000; 
-            font-family: sans-serif; 
+          .print-area, .print-area * { visibility: visible; }
+          .print-area { 
+            position: absolute; left: 0; top: 0; width: 58mm; padding: 2mm; 
+            color: #000; font-family: 'Courier New', Courier, monospace, sans-serif; 
+            background: white; font-size: 10px; line-height: 1.2;
           }
+          .print-area img { display: block; max-width: 45px; height: auto; margin: 0 auto 5px auto; object-fit: contain; }
           .no-print { display: none !important; }
         }
       `}} />
 
-      {/* 📱 100dvh เพื่อให้พอดีกับหน้าจอมือถือเป๊ะๆ โดยไม่ต้องเลื่อน */}
       <div className="flex flex-col h-[100dvh] bg-gray-100 font-sans relative no-print overflow-hidden">
-        
-        {/* Header ยึดติดด้านบน */}
         <header className="bg-white shadow-sm px-4 py-3 flex flex-wrap items-center justify-between z-10 shrink-0">
           <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
             <div className="flex items-center gap-3">
@@ -314,23 +240,21 @@ export default function POSPage() {
               ) : <div className="w-10 h-10 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold text-lg">{storeSettings?.name ? storeSettings.name.charAt(0) : "S"}</div>}
               <h1 className="text-xl font-black text-gray-800 tracking-tight hidden sm:block">{storeSettings?.name || "Standard POS"}</h1>
             </div>
-            <button onClick={() => { playBeep(); router.push("/"); }} className="cursor-pointer px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs md:text-sm border border-gray-200 active:scale-95 transition-all">🏠 หน้าหลัก</button>
+            <button onClick={() => { playBeep(); router.push("/"); }} className="cursor-pointer px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs md:text-sm border border-gray-200 transition-all">🏠 หน้าหลัก</button>
           </div>
           <div className="flex w-full md:w-auto gap-2 mt-3 md:mt-0 overflow-x-auto pb-1 md:pb-0">
             <input type="text" placeholder="ค้นหาสินค้า..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg w-full md:w-48 outline-none bg-gray-50 text-sm focus:border-blue-400 focus:bg-white flex-shrink-0" />
             <button onClick={loadPendingOrders} className="cursor-pointer bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-2 rounded-lg font-bold shadow-sm text-sm flex-shrink-0 transition-all">🧾 บิลค้าง</button>
-            <button onClick={() => { playBeep(); router.push("/products"); }} className="cursor-pointer bg-gray-800 hover:bg-gray-900 text-white px-3 py-2 rounded-lg font-bold shadow-md text-sm flex-shrink-0 transition-all">📦 คลัง</button>
+            <button onClick={() => { playBeep(); router.push("/dashboard"); }} className="cursor-pointer bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg font-bold shadow-md text-sm flex-shrink-0 transition-all">📊 แดชบอร์ด</button>
           </div>
         </header>
 
-        {/* พื้นที่หลัก: บน/ล่าง (มือถือ) หรือ ซ้าย/ขวา (คอม) */}
         <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
-          
-          {/* ส่วนรายการสินค้า (เลื่อนได้อิสระ) */}
           <div className="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100">
             {products.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-400">
                 <p className="font-medium text-lg">ยังไม่มีสินค้าในร้าน</p>
+                <button onClick={() => { playBeep(); router.push("/products"); }} className="mt-4 text-blue-600 font-bold">ไปเพิ่มสินค้าที่คลังเลย</button>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-4 pb-4">
@@ -352,7 +276,6 @@ export default function POSPage() {
             )}
           </div>
 
-          {/* ส่วนตะกร้าสินค้า (แบ่งพื้นที่ชัดเจน ไม่ต้องซ่อน) */}
           <div className="flex flex-col shrink-0 h-[45%] md:h-auto w-full md:w-[350px] lg:w-[400px] bg-white border-t md:border-t-0 md:border-l border-gray-200 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] md:shadow-none">
             <div className="p-3 bg-gray-900 text-white flex justify-between items-center shrink-0">
               <h2 className="text-sm font-bold flex items-center gap-2">🛒 ตะกร้า <span className="bg-blue-500 px-2 py-0.5 rounded-full">{totalItems}</span></h2>
@@ -386,7 +309,7 @@ export default function POSPage() {
                 <span className="text-gray-500 font-bold text-sm">ยอดรวม</span>
                 <span className="text-2xl font-black text-blue-600">฿{totalAmount.toLocaleString()}</span>
               </div>
-              <button onClick={() => { playBeep(); setPaymentMethod("cash"); setCashReceived(""); setShowCheckout(true); }} disabled={cart.length === 0} className={`cursor-pointer w-full py-3.5 rounded-xl font-bold text-base transition-all active:scale-95 ${cart.length > 0 ? "bg-blue-600 text-white shadow-lg" : "bg-gray-200 text-gray-400"}`}>
+              <button onClick={openCheckout} disabled={cart.length === 0} className={`cursor-pointer w-full py-3.5 rounded-xl font-bold text-base transition-all active:scale-95 ${cart.length > 0 ? "bg-blue-600 text-white shadow-lg" : "bg-gray-200 text-gray-400"}`}>
                 ดำเนินการชำระเงิน
               </button>
             </div>
@@ -395,7 +318,6 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* --- 📝 หน้าต่างออกบิลใหม่ (จัดให้อยู่ในหน้าจอเสมอ) --- */}
       {showCheckout && storeSettings && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4 no-print">
           <div className="bg-white rounded-2xl md:rounded-3xl shadow-2xl w-full max-w-4xl max-h-[95dvh] flex flex-col overflow-hidden">
@@ -467,7 +389,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* --- 📝 หน้าต่างบิลค้าง (จัดให้พอดีจอ) --- */}
       {showPendingModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4 no-print">
           <div className="bg-white rounded-2xl md:rounded-3xl shadow-2xl w-full max-w-4xl max-h-[95dvh] flex flex-col overflow-hidden">
@@ -508,11 +429,10 @@ export default function POSPage() {
                     <div className="flex-1 overflow-y-auto bg-white p-3 rounded-xl border border-gray-200 shadow-sm mb-3">
                       <p className="font-bold text-gray-800 mb-2 border-b pb-1 text-sm">รายการสินค้า:</p>
                       <div className="space-y-2">
-                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                        {selectedPendingOrder.order_items.map((item: any, idx: number) => (
+                        {selectedPendingOrder.order_items.map((item: { qty: number; unit_price: number; remark?: string; products?: { name: string; is_vat_exempt: boolean; } }, idx: number) => (
                           <div key={idx} className="flex justify-between text-xs">
                             <div>
-                              <p className="font-bold text-gray-700">{item.qty} x {item.products?.name || "สินค้า"}</p>
+                              <p className="font-bold text-gray-700">{item.qty} x {item.products?.name || "สินค้า"} {item.products?.is_vat_exempt && <span className="text-[9px] text-red-500">(V0)</span>}</p>
                               {item.remark && <p className="text-[10px] text-orange-500 bg-orange-50 inline-block px-1 mt-0.5 rounded">- {item.remark}</p>}
                             </div>
                             <p className="font-bold text-gray-800">฿{(item.unit_price * item.qty).toLocaleString()}</p>
@@ -558,7 +478,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* --- ✅ Modal บันทึกค้างชำระสำเร็จ --- */}
       {savedPendingReceipt && storeSettings && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
@@ -591,7 +510,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* --- ✅ Modal ชำระเงินเรียบร้อย --- */}
       {receiptData && storeSettings && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
@@ -638,33 +556,41 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* --- 🖨️ โครงสร้างการพิมพ์ --- */}
-      <div className="print-only">
+      {/* 🖨️ โครงสร้างการพิมพ์ (แก้ไขให้หน้าตาเหมือนต้นฉบับ MATCHA 232) */}
+      <div className="print-area">
         {showCheckout && !receiptData && (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '4px' }}>
-              {storeSettings?.logo_url && <img src={storeSettings.logo_url} alt="Logo" style={{ maxWidth: '40px', margin: '0 auto 4px auto', display: 'block' }} />}
+              {storeSettings?.logo_url && <img src={storeSettings.logo_url} alt="Logo" />}
               <h1 style={{ fontWeight: 'bold', fontSize: '14px', margin: 0 }}>{storeSettings?.name}</h1>
-              <p style={{ fontSize: '10px', margin: '2px 0', fontWeight: 'bold' }}>{storeSettings?.invoice_title || "ใบแจ้งหนี้"}</p>
+              <p style={{ margin: '2px 0' }}>{storeSettings?.address}</p>
+              <p style={{ margin: '2px 0' }}>โทร: {storeSettings?.phone_number}</p>
+              <p style={{ fontSize: '12px', margin: '4px 0', fontWeight: 'bold', borderBottom: '1px dashed #000', paddingBottom: '2px' }}>{storeSettings?.invoice_title || "ใบแจ้งหนี้"}</p>
             </div>
-            <div style={{ borderBottom: '1px dashed #000', paddingBottom: '4px', marginBottom: '4px', fontSize: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span>เลขที่: {tempInvoiceNo}</span>
+              <span>วันที่: {new Date().toLocaleDateString('th-TH')}</span>
+            </div>
+            <div style={{ borderBottom: '1px dashed #000', paddingBottom: '4px', marginBottom: '4px' }}>
               {cart.map((item, idx) => (
                 <div key={idx} style={{ marginBottom: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>{item.cart_qty} x {item.name}</span>
+                    <span>{item.name} {item.is_vat_exempt && "(V0)"}</span>
                     <span>{(item.price * item.cart_qty).toFixed(2)}</span>
                   </div>
-                  {item.remark && <span style={{ fontSize: '8px', color: '#555', fontStyle: 'italic' }}>- {item.remark}</span>}
+                  {item.remark && <div style={{ fontSize: '8px', color: '#333' }}>- {item.remark}</div>}
+                  <div style={{ fontSize: '8px' }}>{item.cart_qty} x {item.price.toFixed(2)}</div>
                 </div>
               ))}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '12px' }}>
-              <span>ยอดต้องชำระ</span><span>{totalAmount.toFixed(2)}</span>
+              <span>ยอดที่ต้องชำระ</span><span>{totalAmount.toFixed(2)} ฿</span>
             </div>
-            {storeSettings?.promptpay_number && (
+            {storeSettings?.promptpay_number && paymentMethod === 'transfer' && (
               <div style={{ textAlign: 'center', marginTop: '6px' }}>
                 <QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, totalAmount)} size={90} />
-                <p style={{ fontSize: '8px', margin: '4px 0 0 0' }}>สแกนเพื่อชำระเงิน</p>
+                <p style={{ fontSize: '9px', margin: '4px 0 0 0' }}>สแกนชำระผ่าน QR Code พร้อมเพย์</p>
+                <p style={{ fontSize: '9px', margin: '2px 0 0 0' }}>กรุณาชำระเงินตามยอดดังกล่าว</p>
               </div>
             )}
           </div>
@@ -673,39 +599,52 @@ export default function POSPage() {
         {receiptData && storeSettings && (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '4px' }}>
-              {storeSettings.logo_url && <img src={storeSettings.logo_url} alt="Logo" style={{ maxWidth: '40px', margin: '0 auto 4px auto', display: 'block' }} />}
+              {storeSettings.logo_url && <img src={storeSettings.logo_url} alt="Logo" />}
               <h1 style={{ fontWeight: 'bold', fontSize: '14px', margin: 0 }}>{storeSettings.name}</h1>
-              <p style={{ fontSize: '8px', margin: '2px 0' }}>TAX ID: {storeSettings.tax_id}</p>
-              <p style={{ fontSize: '10px', fontWeight: 'bold', margin: '2px 0' }}>{storeSettings.receipt_title || "ใบเสร็จรับเงิน"}</p>
-              <p style={{ fontSize: '8px', margin: '2px 0' }}>บิล: {receiptData.docNo}</p>
+              <p style={{ margin: '2px 0' }}>{storeSettings.address}</p>
+              <p style={{ margin: '2px 0' }}>โทร: {storeSettings.phone_number}</p>
+              <p style={{ margin: '2px 0' }}>TAX ID: {storeSettings.tax_id}</p>
+              <p style={{ fontSize: '12px', fontWeight: 'bold', margin: '4px 0', borderBottom: '1px dashed #000', paddingBottom: '2px' }}>{storeSettings.receipt_title || "ใบเสร็จรับเงิน"}</p>
             </div>
-            <div style={{ borderBottom: '1px dashed #000', paddingBottom: '4px', marginBottom: '4px', fontSize: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span>เลขที่: {receiptData.docNo}</span>
+              <span>วันที่: {receiptData.date.toLocaleDateString('th-TH')}</span>
+            </div>
+            <div style={{ borderBottom: '1px dashed #000', paddingBottom: '4px', marginBottom: '4px' }}>
               {receiptData.items.map((item, idx) => (
                 <div key={idx} style={{ marginBottom: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>{item.cart_qty} x {item.name}</span>
+                    <span>{item.name} {item.is_vat_exempt && "(V0)"}</span>
                     <span>{(item.price * item.cart_qty).toFixed(2)}</span>
                   </div>
-                  {item.remark && <span style={{ fontSize: '8px', color: '#555', fontStyle: 'italic' }}>- {item.remark}</span>}
+                  {item.remark && <div style={{ fontSize: '8px', color: '#333' }}>- {item.remark}</div>}
+                  <div style={{ fontSize: '8px' }}>{item.cart_qty} x {item.price.toFixed(2)}</div>
                 </div>
               ))}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px' }}>
-              <span>VAT 7%</span><span>{receiptData.vatAmount.toFixed(2)}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>มูลค่ายกเว้นภาษี (VAT 0%)</span><span>{receiptData.totalExempt.toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>มูลค่าสินค้าก่อน VAT</span><span>{receiptData.totalVatable.toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>ภาษีมูลค่าเพิ่ม (VAT 7%)</span><span>{receiptData.vatAmount.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '12px', margin: '4px 0' }}>
               <span>ยอดสุทธิ</span><span>{receiptData.totalAmount.toFixed(2)}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px' }}>
-              <span>รับเงิน ({receiptData.paymentMethod === 'cash' ? 'สด' : 'โอน'})</span><span>{receiptData.paymentMethod === 'cash' ? Number(receiptData.cashReceived).toFixed(2) : receiptData.totalAmount.toFixed(2)}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>รับเงิน ({receiptData.paymentMethod === 'cash' ? 'เงินสด' : 'โอนเงิน'})</span><span>{receiptData.paymentMethod === 'cash' ? Number(receiptData.cashReceived).toFixed(2) : receiptData.totalAmount.toFixed(2)}</span>
             </div>
             {receiptData.changeAmount > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '9px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
                 <span>เงินทอน</span><span>{receiptData.changeAmount.toFixed(2)}</span>
               </div>
             )}
-            <div style={{ textAlign: 'center', fontSize: '8px', marginTop: '6px' }}>
-              <p style={{ margin: 0 }}>{storeSettings.receipt_footer || "ขอบคุณที่ใช้บริการ"}</p>
+            <div style={{ textAlign: 'center', marginTop: '6px' }}>
+              <p style={{ margin: 0 }}>{storeSettings.receipt_footer || "ขอขอบคุณที่มาอุดหนุนและใช้บริการ"}</p>
+              <p style={{ margin: '2px 0 0 0', fontSize: '8px' }}>Powered by POS System</p>
             </div>
           </div>
         )}
