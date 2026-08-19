@@ -22,7 +22,7 @@ export default function LoginPage() {
         alert("เข้าสู่ระบบไม่สำเร็จ: " + error.message);
       } else {
         alert("เข้าสู่ระบบสำเร็จ!");
-        router.push("/dashboard"); // แก้ไข: ใช้ router.push แทน window.location.href
+        router.push("/"); // แก้ไข: ใช้ router.push แทน window.location.href
       }
     } else {
       // สำหรับผู้ใช้ใหม่ สมัครสมาชิก
