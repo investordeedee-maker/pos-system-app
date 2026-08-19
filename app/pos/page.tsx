@@ -1,8 +1,8 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../../lib/supabase";
 
@@ -61,6 +61,27 @@ function generatePromptPayPayload(mobileOrId: string, amount: number): string {
   return payloadWithoutCrc + (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
 }
 
+// 🔔 ฟังก์ชันสร้างเสียงติ๊ด (Beep) แบบเครื่อง POS จริงๆ
+const playBeep = () => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(1200, ctx.currentTime); // ความถี่เสียง
+    gain.gain.setValueAtTime(0.1, ctx.currentTime); // ความดัง
+    osc.start();
+    osc.stop(ctx.currentTime + 0.05); // ความยาวเสียง (สั้นๆ)
+  } catch { 
+    // Ignore audio error
+  }
+};
+
 export default function POSPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -91,14 +112,18 @@ export default function POSPage() {
           const { data: productsData } = await supabase.from("products").select("*").eq("store_id", profile.store_id).order("sort_order", { ascending: true }).order("created_at", { ascending: false });
           if (productsData) setProducts(productsData.map((p: Product) => ({ ...p, price: p.sell_price })));
         }
-      } catch (error) { console.error("Error loading POS:", error); } 
-      finally { if (isMounted) setLoading(false); }
+      } catch { 
+        // Ignore error
+      } finally { 
+        if (isMounted) setLoading(false); 
+      }
     };
     initPOS();
     return () => { isMounted = false; };
   }, [router]);
 
   const addToCart = (product: Product) => {
+    playBeep();
     if (product.stock_qty <= 0) return;
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
@@ -110,8 +135,9 @@ export default function POSPage() {
     });
   };
 
-  const removeFromCart = (id: string) => setCart((prev) => prev.filter((item) => item.id !== id));
+  const removeFromCart = (id: string) => { playBeep(); setCart((prev) => prev.filter((item) => item.id !== id)); };
   const decreaseQuantity = (productId: string) => {
+    playBeep();
     setCart((prev) => {
       const existing = prev.find((item) => item.id === productId);
       if (existing?.cart_qty === 1) return prev.filter((item) => item.id !== productId);
@@ -130,16 +156,20 @@ export default function POSPage() {
   const filteredProducts = products.filter((p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
   const loadPendingOrders = async () => {
+    playBeep();
     if (!storeSettings?.id) return;
     try {
       const { data, error } = await supabase.from("orders").select(`*, order_items(*, products(*))`).eq("store_id", storeSettings.id).eq("status", "pending").order("created_at", { ascending: false });
       if (error) throw error;
       setPendingOrders(data || []);
       setShowPendingModal(true);
-    } catch (error: unknown) {}
+    } catch {
+       // Ignore error
+    }
   };
 
   const handleSavePendingOrder = async () => {
+    playBeep();
     if (!storeSettings?.id || cart.length === 0) return;
     setIsProcessing(true);
     try {
@@ -162,12 +192,23 @@ export default function POSPage() {
       setCart([]);
       setShowCheckout(false);
       setIsMobileCartOpen(false);
-    } catch (error: unknown) {} 
-    finally { setIsProcessing(false); }
+    } catch {
+      // Ignore error
+    } finally { 
+      setIsProcessing(false); 
+    }
   };
 
   const handleConfirmPayment = async () => {
+    playBeep();
     if (!storeSettings?.id || cart.length === 0) return;
+    
+    const finalCashReceived = cashReceived;
+    if (paymentMethod === "cash" && (typeof finalCashReceived !== "number" || finalCashReceived < totalAmount)) {
+      alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วนก่อนกดยืนยัน");
+      return;
+    }
+
     setIsProcessing(true);
     try {
       const now = new Date();
@@ -186,14 +227,26 @@ export default function POSPage() {
       for (const item of cart) await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
       setProducts(prev => prev.map(p => { const sold = cart.find(c => c.id === p.id); return sold ? { ...p, stock_qty: p.stock_qty - sold.cart_qty } : p; }));
 
-      setReceiptData({ docNo, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod, cashReceived, changeAmount, date: now });
+      setReceiptData({ docNo, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod, cashReceived: finalCashReceived, changeAmount, date: now });
       setCart([]); setShowCheckout(false); setIsMobileCartOpen(false); setCashReceived("");
-    } catch (error: unknown) {} 
-    finally { setIsProcessing(false); }
+    } catch {
+       // Ignore error
+    } finally { 
+      setIsProcessing(false); 
+    }
   };
 
   const handlePayPendingOrder = async () => {
+    playBeep();
     if (!selectedPendingOrder) return;
+    const orderTotal = selectedPendingOrder.total_amount;
+    
+    const finalCashReceived = cashReceived;
+    if (paymentMethod === "cash" && (typeof finalCashReceived !== "number" || finalCashReceived < orderTotal)) {
+      alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วน");
+      return;
+    }
+
     setIsProcessing(true);
     try {
       await supabase.from("orders").update({ status: "completed", payment_method: paymentMethod }).eq("id", selectedPendingOrder.id);
@@ -202,12 +255,15 @@ export default function POSPage() {
       const gVatable = selectedPendingOrder.total_amount - tExempt;
       const tVatable = gVatable / 1.07;
       const vAmount = gVatable - tVatable;
-      const cAmount = paymentMethod === "cash" && typeof cashReceived === "number" ? cashReceived - selectedPendingOrder.total_amount : 0;
+      const cAmount = paymentMethod === "cash" && typeof finalCashReceived === "number" ? finalCashReceived - selectedPendingOrder.total_amount : 0;
 
-      setReceiptData({ docNo: selectedPendingOrder.doc_no, items: mappedItems, totalAmount: selectedPendingOrder.total_amount, totalExempt: tExempt, totalVatable: tVatable, vatAmount: vAmount, paymentMethod, cashReceived, changeAmount: cAmount, date: new Date() });
+      setReceiptData({ docNo: selectedPendingOrder.doc_no, items: mappedItems, totalAmount: selectedPendingOrder.total_amount, totalExempt: tExempt, totalVatable: tVatable, vatAmount: vAmount, paymentMethod, cashReceived: finalCashReceived, changeAmount: cAmount, date: new Date() });
       setSelectedPendingOrder(null); setShowPendingModal(false); setCashReceived("");
-    } catch (error: unknown) {} 
-    finally { setIsProcessing(false); }
+    } catch {
+       // Ignore error
+    } finally { 
+      setIsProcessing(false); 
+    }
   };
 
   if (loading) return <div className="flex min-h-screen items-center justify-center font-bold text-gray-500">กำลังโหลดระบบ POS...</div>;
@@ -219,17 +275,19 @@ export default function POSPage() {
         .print-only { display: none; }
         @media print {
           @page { margin: 0; size: 58mm auto; }
-          html, body { background: white; margin: 0; padding: 0; height: auto !important; overflow: visible !important; }
-          .no-print { display: none !important; }
+          html, body { background: white !important; margin: 0 !important; padding: 0 !important; }
+          body * { visibility: hidden; }
+          .print-only, .print-only * { visibility: visible; }
           .print-only { 
             display: block !important; 
+            position: absolute; 
+            left: 0; top: 0; 
             width: 58mm; 
+            padding: 2mm; 
             color: #000; 
-            font-family: sans-serif;
-            padding: 2mm;
+            font-family: sans-serif; 
           }
-          img { max-width: 40px !important; object-fit: contain; margin: 0 auto; display: block; }
-          svg { margin: 0 auto; display: block; }
+          .no-print { display: none !important; }
         }
       `}} />
 
@@ -239,17 +297,17 @@ export default function POSPage() {
             <div className="flex items-center gap-3">
               {storeSettings?.logo_url ? (
                 <div className="w-10 h-10 relative rounded-md overflow-hidden bg-white border border-gray-100">
-                  <Image src={storeSettings.logo_url} alt="Logo" fill className="object-contain p-1" unoptimized />
+                  <img src={storeSettings.logo_url} alt="Logo" className="w-full h-full object-contain p-1" crossOrigin="anonymous" />
                 </div>
               ) : <div className="w-10 h-10 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold text-lg">{storeSettings?.name ? storeSettings.name.charAt(0) : "S"}</div>}
               <h1 className="text-xl font-black text-gray-800 tracking-tight hidden sm:block">{storeSettings?.name || "Standard POS"}</h1>
             </div>
-            <button onClick={() => router.push("/")} className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs md:text-sm border border-gray-200 active:scale-95">🏠 หน้าหลัก</button>
+            <button onClick={() => { playBeep(); router.push("/"); }} className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs md:text-sm border border-gray-200 active:scale-95">🏠 หน้าหลัก</button>
           </div>
           <div className="flex w-full md:w-auto gap-2 mt-3 md:mt-0 overflow-x-auto pb-1 md:pb-0">
             <input type="text" placeholder="ค้นหาสินค้า..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg w-full md:w-48 outline-none bg-gray-50 text-sm focus:border-blue-400 focus:bg-white flex-shrink-0" />
             <button onClick={loadPendingOrders} className="bg-orange-100 text-orange-700 px-3 py-2 rounded-lg font-bold shadow-sm text-sm flex-shrink-0">🧾 บิลค้าง</button>
-            <button onClick={() => router.push("/products")} className="bg-gray-800 text-white px-3 py-2 rounded-lg font-bold shadow-md text-sm flex-shrink-0">📦 คลัง</button>
+            <button onClick={() => { playBeep(); router.push("/products"); }} className="bg-gray-800 text-white px-3 py-2 rounded-lg font-bold shadow-md text-sm flex-shrink-0">📦 คลัง</button>
           </div>
         </header>
 
@@ -258,14 +316,15 @@ export default function POSPage() {
             {products.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-400">
                 <p className="font-medium text-lg">ยังไม่มีสินค้าในร้าน</p>
-                <button onClick={() => router.push("/products")} className="mt-4 text-blue-600 font-bold">ไปเพิ่มสินค้าที่คลังเลย</button>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 md:gap-4 pb-10">
                 {filteredProducts.map((product) => (
                   <div key={product.id} onClick={() => addToCart(product)} className={`bg-white p-3 rounded-2xl shadow-sm border ${product.stock_qty <= 0 ? 'border-red-200 opacity-60' : 'border-gray-100 hover:border-blue-400 cursor-pointer'} flex flex-col active:scale-95`}>
                     <div className="w-full aspect-square bg-gray-50 rounded-xl mb-2 flex items-center justify-center relative overflow-hidden border border-gray-100 p-1">
-                      {product.image_url ? <Image src={product.image_url} alt={product.name} fill className="object-cover rounded-lg" unoptimized /> : <span className="text-gray-400 text-xs">ไม่มีรูป</span>}
+                      {product.image_url ? (
+                        <img src={product.image_url} alt={product.name} className="w-full h-full object-cover rounded-lg" crossOrigin="anonymous" />
+                      ) : <span className="text-gray-400 text-xs">ไม่มีรูป</span>}
                     </div>
                     <h3 className="font-bold text-gray-800 text-sm line-clamp-2 h-10 mt-1">{product.name}</h3>
                     <div className="flex justify-between items-end mt-2">
@@ -283,8 +342,8 @@ export default function POSPage() {
               <div className="p-3 bg-gray-900 text-white flex justify-between items-center rounded-t-3xl md:rounded-none">
                 <h2 className="text-sm font-bold flex items-center gap-2">🛒 ตะกร้า <span className="bg-blue-500 px-2 py-0.5 rounded-full">{totalItems}</span></h2>
                 <div className="flex gap-2">
-                  <button onClick={() => setCart([])} className="text-xs text-red-400 bg-red-400/10 px-2 py-1 rounded">ล้างทั้งหมด</button>
-                  <button className="md:hidden text-white font-bold px-2" onClick={() => setIsMobileCartOpen(false)}>✕</button>
+                  <button onClick={() => { playBeep(); setCart([]); }} className="text-xs text-red-400 bg-red-400/10 px-2 py-1 rounded">ล้างทั้งหมด</button>
+                  <button className="md:hidden text-white font-bold px-2" onClick={() => { playBeep(); setIsMobileCartOpen(false); }}>✕</button>
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-gray-50/50">
@@ -303,7 +362,7 @@ export default function POSPage() {
                           <button onClick={() => removeFromCart(item.id)} className="w-5 h-5 bg-red-100 rounded text-red-500 shadow-sm font-bold ml-1">✕</button>
                         </div>
                       </div>
-                      <input type="text" placeholder="หมายเหตุ..." value={item.remark || ""} onChange={(e) => updateRemark(item.id, e.target.value)} className="w-full text-[11px] px-2 py-1 border border-gray-200 rounded outline-none bg-gray-50" />
+                      <input type="text" placeholder="หมายเหตุ (เช่น หวานน้อย)..." value={item.remark || ""} onChange={(e) => updateRemark(item.id, e.target.value)} className="w-full text-[11px] px-2 py-1 border border-gray-200 rounded outline-none bg-gray-50" />
                     </div>
                   ))
                 }
@@ -313,8 +372,8 @@ export default function POSPage() {
                   <span className="text-gray-500 font-bold text-sm">ยอดรวม</span>
                   <span className="text-2xl font-black text-blue-600">฿{totalAmount.toLocaleString()}</span>
                 </div>
-                <button onClick={() => setShowCheckout(true)} disabled={cart.length === 0} className={`w-full py-3 rounded-xl font-bold text-base transition-all ${cart.length > 0 ? "bg-blue-600 text-white shadow-lg" : "bg-gray-200 text-gray-400"}`}>
-                  ชำระเงิน
+                <button onClick={() => { playBeep(); setPaymentMethod("cash"); setCashReceived(""); setShowCheckout(true); }} disabled={cart.length === 0} className={`w-full py-3 rounded-xl font-bold text-base transition-all ${cart.length > 0 ? "bg-blue-600 text-white shadow-lg" : "bg-gray-200 text-gray-400"}`}>
+                  ดำเนินการชำระเงิน
                 </button>
               </div>
             </div>
@@ -322,121 +381,228 @@ export default function POSPage() {
         </div>
       </div>
 
+      {/* --- 📝 หน้าต่างออกบิล (แบบกว้าง Side-by-side ไม่ต้องเลื่อน!) --- */}
       {showCheckout && storeSettings && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 no-print">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col h-auto">
-            <div className="p-3 bg-blue-600 text-white flex justify-between items-center">
-              <h2 className="text-sm font-bold">📝 ใบแจ้งหนี้</h2>
-              <button onClick={() => setShowCheckout(false)} className="text-white font-bold w-6 h-6">✕</button>
-            </div>
-            <div className="p-4 bg-gray-50">
-              <div className="bg-white p-3 rounded-xl border border-gray-200 mb-3">
-                <div className="space-y-1 border-b border-dashed border-gray-300 pb-2 mb-2">
-                  {cart.map((item, idx) => (
-                    <div key={idx} className="flex justify-between text-xs text-gray-700">
-                      <span>{item.cart_qty} x {item.name}</span>
-                      <span className="font-bold">฿{(item.price * item.cart_qty).toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex justify-between items-center text-lg font-black text-blue-600 bg-blue-50 p-2 rounded-lg">
-                  <span>ยอดสุทธิ</span><span>฿{totalAmount.toLocaleString()}</span>
-                </div>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[90vh]">
+            
+            {/* ซีกซ้าย: สรุปรายการบิล */}
+            <div className="w-full md:w-1/2 bg-gray-50 p-6 flex flex-col border-r border-gray-200 overflow-y-auto">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-black text-gray-800">สรุปใบแจ้งหนี้</h2>
+                <button onClick={() => { playBeep(); setShowCheckout(false); }} className="md:hidden text-gray-500 font-bold text-2xl w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">✕</button>
               </div>
-              <div className="bg-white p-3 rounded-xl border border-gray-200">
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  <button onClick={() => setPaymentMethod("cash")} className={`py-2 rounded-lg font-bold border-2 text-sm ${paymentMethod === "cash" ? "border-blue-600 bg-blue-50 text-blue-700" : "border-gray-200 text-gray-500"}`}>💵 เงินสด</button>
-                  <button onClick={() => setPaymentMethod("transfer")} className={`py-2 rounded-lg font-bold border-2 text-sm ${paymentMethod === "transfer" ? "border-blue-600 bg-blue-50 text-blue-700" : "border-gray-200 text-gray-500"}`}>📱 โอนเงิน</button>
-                </div>
+              <div className="space-y-3 border-b border-dashed border-gray-300 pb-4 mb-4 flex-1">
+                {cart.map((item, idx) => (
+                  <div key={idx} className="flex flex-col text-sm text-gray-700 bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+                    <div className="flex justify-between items-start">
+                      <span className="font-bold">{item.cart_qty} x {item.name}</span>
+                      <span className="font-black text-blue-600">฿{(item.price * item.cart_qty).toLocaleString()}</span>
+                    </div>
+                    {item.remark && <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded mt-2 self-start">- หมายเหตุ: {item.remark}</span>}
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between items-center text-2xl font-black text-blue-600 bg-blue-100 p-4 rounded-xl">
+                <span>ยอดที่ต้องชำระ</span><span>฿{totalAmount.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* ซีกขวา: ตัวเลือกชำระเงิน */}
+            <div className="w-full md:w-1/2 bg-white p-6 flex flex-col">
+              <div className="hidden md:flex justify-end mb-2">
+                <button onClick={() => { playBeep(); setShowCheckout(false); }} className="text-gray-400 hover:text-red-500 font-bold text-2xl">✕</button>
+              </div>
+              
+              <label className="block text-sm font-bold text-gray-700 mb-3">รูปแบบการชำระเงิน</label>
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                <button onClick={() => { playBeep(); setPaymentMethod("cash"); }} className={`py-4 rounded-xl font-bold border-2 text-lg transition-all ${paymentMethod === "cash" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}>💵 เงินสด</button>
+                <button onClick={() => { playBeep(); setPaymentMethod("transfer"); }} className={`py-4 rounded-xl font-bold border-2 text-lg transition-all ${paymentMethod === "transfer" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}>📱 โอนเงิน/QR</button>
+              </div>
+
+              <div className="flex-1 flex flex-col justify-center">
                 {paymentMethod === "transfer" && (
-                  <div className="text-center p-2 bg-blue-50 rounded-lg">
-                    {storeSettings.promptpay_number ? <QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, totalAmount)} size={100} /> : <p className="text-red-500 text-xs">ไม่มีเบอร์ PromptPay</p>}
+                  <div className="text-center p-6 bg-blue-50 rounded-2xl border border-blue-100 shadow-inner flex flex-col items-center justify-center">
+                    {storeSettings.promptpay_number ? (
+                      <>
+                        <div className="bg-white p-3 rounded-xl shadow-md"><QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, totalAmount)} size={180} /></div>
+                        <p className="font-bold text-blue-800 mt-4">สแกน QR Code เพื่อโอนเงิน</p>
+                      </>
+                    ) : <p className="text-red-500 font-bold">กรุณาตั้งค่าเบอร์ PromptPay ก่อน</p>}
                   </div>
                 )}
                 {paymentMethod === "cash" && (
-                  <input type="number" value={cashReceived} onChange={(e) => setCashReceived(e.target.value ? Number(e.target.value) : "")} className="w-full px-3 py-2 text-lg font-black text-center border-2 border-gray-300 rounded-lg outline-none" placeholder="รับเงินมา..." />
+                  <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200 shadow-inner">
+                    <label className="block text-sm font-bold text-gray-500 mb-3 text-center uppercase tracking-wider">ระบุจำนวนเงินที่รับจากลูกค้า (บาท)</label>
+                    <input type="number" value={cashReceived} onChange={(e) => setCashReceived(e.target.value ? Number(e.target.value) : "")} className="w-full px-4 py-4 text-3xl font-black text-center text-blue-700 border-2 border-gray-300 rounded-xl outline-none focus:border-blue-500 transition-all bg-white shadow-sm" placeholder="0.00" />
+                    {changeAmount > 0 && (
+                      <div className="mt-4 flex justify-between items-center text-xl bg-green-100 border border-green-300 text-green-800 p-4 rounded-xl font-black shadow-sm">
+                        <span>เงินทอน</span><span className="text-3xl">฿{changeAmount.toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
-            </div>
-            <div className="p-3 bg-white border-t flex flex-col gap-2">
-              <div className="flex gap-2">
-                <button onClick={() => window.print()} className="bg-gray-100 text-gray-800 font-bold py-2.5 rounded-lg flex-1 text-xs">🖨️ พิมพ์แจ้งหนี้</button>
-                <button onClick={handleSavePendingOrder} disabled={isProcessing} className="bg-orange-50 text-orange-700 font-bold py-2.5 rounded-lg flex-1 text-xs">⏳ ค้างชำระ</button>
+
+              <div className="mt-6 flex flex-col gap-3">
+                <div className="flex gap-3">
+                  <button onClick={() => { playBeep(); window.print(); }} className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-4 rounded-xl flex-1 text-sm border border-gray-300 shadow-sm flex items-center justify-center gap-2">🖨️ แจ้งหนี้</button>
+                  <button onClick={handleSavePendingOrder} disabled={isProcessing} className="bg-orange-50 hover:bg-orange-100 text-orange-700 font-bold py-4 rounded-xl flex-1 text-sm border border-orange-200 shadow-sm flex items-center justify-center gap-2">⏳ บันทึกค้างชำระ</button>
+                </div>
+                <button onClick={handleConfirmPayment} disabled={isProcessing} className="w-full py-5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-black text-lg shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2">
+                  ✅ ยืนยันชำระเงิน
+                </button>
               </div>
-              <button onClick={handleConfirmPayment} disabled={isProcessing} className="w-full py-3 bg-green-600 text-white rounded-lg font-bold text-sm shadow-md">
-                ✅ ยืนยันชำระเงิน
-              </button>
             </div>
           </div>
         </div>
       )}
 
-      {receiptData && storeSettings && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 no-print">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col h-auto">
-            <div className="p-3 bg-green-500 text-white flex justify-between items-center">
-              <h2 className="font-bold text-sm">✅ ชำระเงินเรียบร้อย</h2>
-              <button onClick={() => setReceiptData(null)} className="text-white font-bold w-6 h-6">✕</button>
-            </div>
-            <div className="p-4 bg-gray-50">
-              <div className="text-center mb-3">
-                <h1 className="font-black text-lg text-gray-800">{storeSettings.name}</h1>
-                <p className="text-xs font-bold text-gray-500 mt-1">บิล: {receiptData.docNo}</p>
+      {/* --- 📝 หน้าต่างบิลค้าง (Side-by-side กว้าง ไม่ต้องเลื่อน) --- */}
+      {showPendingModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 no-print">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[90vh]">
+            <div className="w-full md:w-1/2 bg-gray-50 p-6 flex flex-col border-r border-gray-200 overflow-y-auto">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-black text-orange-600">🧾 รายการบิลค้างชำระ</h2>
+                <button onClick={() => { playBeep(); setShowPendingModal(false); setSelectedPendingOrder(null); }} className="md:hidden text-gray-500 font-bold text-2xl w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">✕</button>
               </div>
-              <div className="bg-white p-3 rounded-xl border border-gray-200">
-                <div className="space-y-1 border-b border-dashed border-gray-300 pb-2 mb-2">
-                  {receiptData.items.map((item, idx) => (
-                    <div key={idx} className="flex justify-between text-xs text-gray-700">
-                      <span>{item.cart_qty} x {item.name}</span>
-                      <span className="font-bold">฿{(item.price * item.cart_qty).toLocaleString()}</span>
+              {!selectedPendingOrder ? (
+                pendingOrders.length === 0 ? <p className="text-center text-gray-500 mt-10">ไม่มีบิลค้างชำระ</p> : (
+                  <div className="space-y-3">
+                    {pendingOrders.map(order => (
+                      <div key={order.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-3">
+                        <div>
+                          <p className="font-bold text-gray-800">{order.doc_no}</p>
+                          <p className="text-xs text-gray-500">{new Date(order.created_at).toLocaleString('th-TH')}</p>
+                        </div>
+                        <div className="flex items-center gap-3 w-full sm:w-auto justify-between">
+                          <span className="font-black text-blue-600">฿{order.total_amount.toLocaleString()}</span>
+                          <button onClick={() => { playBeep(); setSelectedPendingOrder(order); setPaymentMethod("cash"); setCashReceived(""); }} className="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-bold text-sm">เลือก</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <div className="flex flex-col h-full">
+                  <button onClick={() => { playBeep(); setSelectedPendingOrder(null); }} className="text-sm font-bold text-gray-500 hover:text-gray-800 mb-4 self-start">← ย้อนกลับ</button>
+                  <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm text-center flex-1 flex flex-col justify-center">
+                    <p className="text-gray-500 font-medium">เลขที่บิลที่เลือก</p>
+                    <p className="text-lg font-bold text-gray-800 mb-2">{selectedPendingOrder.doc_no}</p>
+                    <h3 className="text-4xl font-black text-blue-600 mt-2">฿{selectedPendingOrder.total_amount.toLocaleString()}</h3>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className={`w-full md:w-1/2 bg-white p-6 flex flex-col ${!selectedPendingOrder ? 'hidden md:flex opacity-50 pointer-events-none' : ''}`}>
+              <div className="hidden md:flex justify-end mb-2">
+                <button onClick={() => { playBeep(); setShowPendingModal(false); setSelectedPendingOrder(null); }} className="text-gray-400 hover:text-red-500 font-bold text-2xl">✕</button>
+              </div>
+              <label className="block text-sm font-bold text-gray-700 mb-3">รูปแบบการชำระเงิน</label>
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                <button onClick={() => { playBeep(); setPaymentMethod("cash"); }} className={`py-4 rounded-xl font-bold border-2 text-lg transition-all ${paymentMethod === "cash" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-gray-200 text-gray-500"}`}>💵 เงินสด</button>
+                <button onClick={() => { playBeep(); setPaymentMethod("transfer"); }} className={`py-4 rounded-xl font-bold border-2 text-lg transition-all ${paymentMethod === "transfer" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-gray-200 text-gray-500"}`}>📱 โอนเงิน/QR</button>
+              </div>
+
+              <div className="flex-1 flex flex-col justify-center">
+                {paymentMethod === "transfer" && selectedPendingOrder && (
+                  <div className="text-center p-6 bg-blue-50 rounded-2xl border border-blue-100 flex flex-col items-center">
+                    {storeSettings?.promptpay_number ? (
+                      <><div className="bg-white p-3 rounded-xl">
+                        <QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, selectedPendingOrder.total_amount)} size={180} />
+                        </div><p className="font-bold text-blue-800 mt-4">สแกน QR Code</p></>
+                    ) : <p className="text-red-500 font-bold">ไม่มีเบอร์ PromptPay</p>}
+                  </div>
+                )}
+                {paymentMethod === "cash" && selectedPendingOrder && (
+                  <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200 shadow-inner">
+                    <label className="block text-sm font-bold text-gray-500 mb-3 text-center uppercase">รับเงินสด (บาท)</label>
+                    <input type="number" value={cashReceived} onChange={(e) => setCashReceived(e.target.value ? Number(e.target.value) : "")} className="w-full px-4 py-4 text-3xl font-black text-center text-blue-700 border-2 border-gray-300 rounded-xl outline-none focus:border-blue-500 bg-white" placeholder="0.00" />
+                  </div>
+                )}
+              </div>
+              <button onClick={handlePayPendingOrder} disabled={isProcessing || !selectedPendingOrder} className="mt-6 w-full py-5 bg-green-600 text-white rounded-xl font-black text-lg shadow-lg active:scale-95">✅ ยืนยันรับเงิน</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- ✅ หน้าต่างใบเสร็จรับเงิน (สำเร็จ) --- */}
+      {receiptData && storeSettings && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+            <div className="p-4 bg-green-500 text-white flex justify-between items-center">
+              <h2 className="font-bold text-lg">✅ ชำระเงินเรียบร้อย</h2>
+              <button onClick={() => { playBeep(); setReceiptData(null); }} className="text-white font-bold text-xl">✕</button>
+            </div>
+            <div className="p-6 bg-white overflow-y-auto max-h-[60vh]">
+              <div className="text-center mb-4">
+                <h1 className="font-black text-xl text-gray-800">{storeSettings.name}</h1>
+                <p className="text-gray-500 text-xs mt-1">บิลเลขที่: <span className="font-bold">{receiptData.docNo}</span></p>
+              </div>
+              <div className="space-y-2 mb-4 border-b border-dashed border-gray-300 pb-4 text-sm">
+                {receiptData.items.map((item, idx) => (
+                  <div key={idx} className="flex flex-col">
+                    <div className="flex justify-between items-start">
+                      <span className="font-bold text-gray-800">{item.cart_qty} x {item.name}</span>
+                      <span className="font-bold text-gray-800">฿{(item.price * item.cart_qty).toLocaleString()}</span>
                     </div>
-                  ))}
-                </div>
-                <div className="flex justify-between items-center text-lg font-black text-blue-600 bg-blue-50 p-2 rounded-lg">
-                  <span>ยอดสุทธิ</span><span>฿{receiptData.totalAmount.toLocaleString()}</span>
-                </div>
-                <div className="mt-2 text-xs text-gray-600 flex justify-between">
+                    {item.remark && <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded mt-1 self-start">- {item.remark}</span>}
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between font-black text-lg text-blue-600 bg-blue-50 p-3 rounded-xl mb-4">
+                <span>ยอดสุทธิ</span><span>฿{receiptData.totalAmount.toLocaleString()}</span>
+              </div>
+              <div className="space-y-2 text-sm text-gray-700">
+                <div className="flex justify-between">
                   <span>รับเงิน ({receiptData.paymentMethod === 'cash' ? 'สด' : 'โอน'})</span>
                   <span className="font-bold">฿{receiptData.paymentMethod === 'cash' ? Number(receiptData.cashReceived).toLocaleString() : receiptData.totalAmount.toLocaleString()}</span>
                 </div>
                 {receiptData.changeAmount > 0 && (
-                  <div className="flex justify-between font-bold text-green-600 text-xs mt-1">
+                  <div className="flex justify-between font-bold text-green-600 text-base">
                     <span>เงินทอน</span><span>฿{receiptData.changeAmount.toLocaleString()}</span>
                   </div>
                 )}
               </div>
             </div>
-            <div className="p-3 bg-white border-t flex gap-2">
-              <button onClick={() => setReceiptData(null)} className="flex-1 bg-gray-100 text-gray-700 font-bold py-2.5 rounded-lg text-xs">ปิด</button>
-              <button onClick={() => window.print()} className="flex-[2] bg-blue-600 text-white font-bold py-2.5 rounded-lg shadow-md text-xs">🖨️ พิมพ์สลิป (58mm)</button>
+            <div className="p-4 bg-gray-50 border-t flex gap-3">
+              <button onClick={() => { playBeep(); setReceiptData(null); }} className="flex-1 bg-white border border-gray-300 text-gray-700 font-bold py-3.5 rounded-xl">ปิด</button>
+              <button onClick={() => { playBeep(); window.print(); }} className="flex-[2] bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-md">🖨️ พิมพ์สลิป (58mm)</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* --- ส่วนสำหรับพิมพ์ออกเครื่องพิมพ์ใบเสร็จโดยเฉพาะ --- */}
+      {/* --- 🖨️ โครงสร้าง HTML สำหรับส่งเข้าเครื่องพิมพ์เท่านั้น (ซ่อนอยู่หลังบ้าน) --- */}
       <div className="print-only">
         {showCheckout && !receiptData && (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '4px' }}>
+              {storeSettings?.logo_url && <img src={storeSettings.logo_url} alt="Logo" style={{ maxWidth: '40px', margin: '0 auto 4px auto', display: 'block' }} crossOrigin="anonymous" />}
               <h1 style={{ fontWeight: 'bold', fontSize: '14px', margin: 0 }}>{storeSettings?.name}</h1>
-              <p style={{ fontSize: '10px', margin: '2px 0' }}>{storeSettings?.invoice_title || "ใบแจ้งหนี้"}</p>
+              <p style={{ fontSize: '10px', margin: '2px 0', fontWeight: 'bold' }}>{storeSettings?.invoice_title || "ใบแจ้งหนี้"}</p>
             </div>
             <div style={{ borderBottom: '1px dashed #000', paddingBottom: '4px', marginBottom: '4px', fontSize: '10px' }}>
               {cart.map((item, idx) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                  <span>{item.cart_qty} x {item.name}</span>
-                  <span>{(item.price * item.cart_qty).toFixed(2)}</span>
+                <div key={idx} style={{ marginBottom: '2px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{item.cart_qty} x {item.name}</span>
+                    <span>{(item.price * item.cart_qty).toFixed(2)}</span>
+                  </div>
+                  {item.remark && <span style={{ fontSize: '8px', color: '#555', fontStyle: 'italic' }}>- {item.remark}</span>}
                 </div>
               ))}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '12px' }}>
-              <span>ยอดชำระ</span><span>{totalAmount.toFixed(2)}</span>
+              <span>ยอดต้องชำระ</span><span>{totalAmount.toFixed(2)}</span>
             </div>
             {storeSettings?.promptpay_number && (
-              <div style={{ textAlign: 'center', marginTop: '4px' }}>
+              <div style={{ textAlign: 'center', marginTop: '6px' }}>
                 <QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, totalAmount)} size={90} />
-                <p style={{ fontSize: '8px', margin: '2px 0' }}>สแกนชำระผ่าน QR Code</p>
+                <p style={{ fontSize: '8px', margin: '4px 0 0 0' }}>สแกนเพื่อชำระเงิน</p>
               </div>
             )}
           </div>
@@ -445,18 +611,20 @@ export default function POSPage() {
         {receiptData && storeSettings && (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '4px' }}>
+              {storeSettings.logo_url && <img src={storeSettings.logo_url} alt="Logo" style={{ maxWidth: '40px', margin: '0 auto 4px auto', display: 'block' }} crossOrigin="anonymous" />}
               <h1 style={{ fontWeight: 'bold', fontSize: '14px', margin: 0 }}>{storeSettings.name}</h1>
               <p style={{ fontSize: '8px', margin: '2px 0' }}>TAX ID: {storeSettings.tax_id}</p>
               <p style={{ fontSize: '10px', fontWeight: 'bold', margin: '2px 0' }}>{storeSettings.receipt_title || "ใบเสร็จรับเงิน"}</p>
-            </div>
-            <div style={{ fontSize: '8px', marginBottom: '4px' }}>
-              <p style={{ margin: 0 }}>บิล: {receiptData.docNo}</p>
+              <p style={{ fontSize: '8px', margin: '2px 0' }}>บิล: {receiptData.docNo}</p>
             </div>
             <div style={{ borderBottom: '1px dashed #000', paddingBottom: '4px', marginBottom: '4px', fontSize: '10px' }}>
               {receiptData.items.map((item, idx) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                  <span>{item.cart_qty} x {item.name}</span>
-                  <span>{(item.price * item.cart_qty).toFixed(2)}</span>
+                <div key={idx} style={{ marginBottom: '2px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{item.cart_qty} x {item.name}</span>
+                    <span>{(item.price * item.cart_qty).toFixed(2)}</span>
+                  </div>
+                  {item.remark && <span style={{ fontSize: '8px', color: '#555', fontStyle: 'italic' }}>- {item.remark}</span>}
                 </div>
               ))}
             </div>
@@ -467,7 +635,7 @@ export default function POSPage() {
               <span>ยอดสุทธิ</span><span>{receiptData.totalAmount.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px' }}>
-              <span>รับเงิน</span><span>{receiptData.paymentMethod === 'cash' ? Number(receiptData.cashReceived).toFixed(2) : receiptData.totalAmount.toFixed(2)}</span>
+              <span>รับเงิน ({receiptData.paymentMethod === 'cash' ? 'สด' : 'โอน'})</span><span>{receiptData.paymentMethod === 'cash' ? Number(receiptData.cashReceived).toFixed(2) : receiptData.totalAmount.toFixed(2)}</span>
             </div>
             {receiptData.changeAmount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '9px' }}>
