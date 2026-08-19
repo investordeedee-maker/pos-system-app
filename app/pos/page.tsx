@@ -65,29 +65,21 @@ function generatePromptPayPayload(mobileOrId: string, amount: number): string {
   return payloadWithoutCrc + (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
 }
 
-// 🔔 ระบบเสียงที่ปรับปรุงใหม่ (ไม่ใช้ any และไม่มีดีเลย์)
-let audioCtx: AudioContext | null = null;
+// 🔔 ระบบเสียงที่ปรับปรุงใหม่: สร้าง AudioContext สดใหม่ทุกครั้งที่กด (แก้ปัญหาดีเลย์ 100%)
 const playBeep = () => {
   try {
-    if (!audioCtx) {
-      const AudioContextClass = window.AudioContext || (window as unknown as CustomWindow).webkitAudioContext;
-      if (AudioContextClass) audioCtx = new AudioContextClass();
-    }
-    if (!audioCtx) return;
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
+    const AudioContextClass = window.AudioContext || (window as unknown as CustomWindow).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
     osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    
+    gain.connect(ctx.destination);
     osc.type = "sine";
-    osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.1);
-    
+    osc.frequency.setValueAtTime(800, ctx.currentTime);
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
     osc.start();
-    osc.stop(audioCtx.currentTime + 0.1);
+    osc.stop(ctx.currentTime + 0.1);
   } catch { 
     // Ignore error if browser blocks audio
   }
@@ -133,11 +125,8 @@ export default function POSPage() {
           const { data: productsData } = await supabase.from("products").select("*").eq("store_id", profile.store_id).order("sort_order", { ascending: true }).order("created_at", { ascending: false });
           if (productsData) setProducts(productsData.map((p: Product) => ({ ...p, price: p.sell_price })));
         }
-      } catch { 
-        // Ignore error
-      } finally { 
-        if (isMounted) setLoading(false); 
-      }
+      } catch { } 
+      finally { if (isMounted) setLoading(false); }
     };
     initPOS();
     return () => { isMounted = false; };
@@ -187,7 +176,7 @@ export default function POSPage() {
       if (error) throw error;
       setPendingOrders(data || []);
       setShowPendingModal(true);
-    } catch { /* Ignore */ }
+    } catch { }
   };
 
   const handleSavePendingOrder = async () => {
@@ -216,19 +205,17 @@ export default function POSPage() {
       setCart([]);
       setShowCheckout(false);
       setIsMobileCartOpen(false);
-    } catch { /* Ignore */ } 
+    } catch { } 
     finally { setIsProcessing(false); }
   };
 
   const handleConfirmPayment = async () => {
     playBeep();
     if (!storeSettings?.id || cart.length === 0) return;
-    
     if (paymentMethod === "cash" && (cashReceived === "" || parsedCash < totalAmount)) {
       alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วนก่อนกดยืนยันชำระเงิน");
       return;
     }
-
     setIsProcessing(true);
     try {
       const now = new Date();
@@ -250,7 +237,7 @@ export default function POSPage() {
       setReceiptData({ docNo, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod, cashReceived: parsedCash, changeAmount, date: now });
       playSuccessBeep();
       setCart([]); setShowCheckout(false); setIsMobileCartOpen(false); setCashReceived("");
-    } catch { /* Ignore */ } 
+    } catch { } 
     finally { setIsProcessing(false); }
   };
 
@@ -268,12 +255,12 @@ export default function POSPage() {
     try {
       await supabase.from("orders").update({ status: "completed", payment_method: paymentMethod }).eq("id", selectedPendingOrder.id);
       
-      const mappedItems: CartItem[] = selectedPendingOrder.order_items.map((oi: PendingOrderItem) => ({ 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mappedItems: CartItem[] = selectedPendingOrder.order_items.map((oi: any) => ({ 
         id: oi.product_id, name: oi.products?.name || "สินค้า", price: oi.unit_price, 
         cart_qty: oi.qty, is_vat_exempt: oi.products?.is_vat_exempt || false, 
         remark: oi.remark || "", stock_qty: 0, sell_price: 0, image_url: "" 
       }));
-      
       const tExempt = mappedItems.filter(item => item.is_vat_exempt).reduce((sum, item) => sum + item.price * item.cart_qty, 0);
       const gVatable = selectedPendingOrder.total_amount - tExempt;
       const tVatable = gVatable / 1.07;
@@ -283,7 +270,7 @@ export default function POSPage() {
       setReceiptData({ docNo: selectedPendingOrder.doc_no, items: mappedItems, totalAmount: selectedPendingOrder.total_amount, totalExempt: tExempt, totalVatable: tVatable, vatAmount: vAmount, paymentMethod, cashReceived: parsedCash, changeAmount: cAmount, date: new Date() });
       playSuccessBeep();
       setSelectedPendingOrder(null); setShowPendingModal(false); setCashReceived("");
-    } catch { /* Ignore */ } 
+    } catch { } 
     finally { setIsProcessing(false); }
   };
 
@@ -291,21 +278,24 @@ export default function POSPage() {
 
   return (
     <>
+      {/* 🖨️ CSS แก้ไขระบบพิมพ์ บังคับลบส่วนที่ไม่เกี่ยวข้องและจัดขอบ 100% */}
       <style dangerouslySetInnerHTML={{
         __html: `
-        #invoice-print-area { display: none; }
-        #receipt-print-area { display: none; }
+        .print-only { display: none; }
         @media print {
           @page { margin: 0; size: 58mm auto; }
-          html, body { height: max-content !important; overflow: hidden !important; background: white; margin: 0; padding: 0; }
+          body, html { margin: 0 !important; padding: 0 !important; background: white !important; height: auto !important; overflow: visible !important; }
           body * { visibility: hidden; }
-          #invoice-print-area, #invoice-print-area * { visibility: visible; }
-          #receipt-print-area, #receipt-print-area * { visibility: visible; }
-          #invoice-print-area, #receipt-print-area {
-            display: block !important; position: absolute; left: 0; top: 0; width: 58mm; padding: 2mm; margin: 0; color: #000; font-family: 'Courier New', Courier, monospace;
+          .print-only, .print-only * { visibility: visible; }
+          .print-only { 
+            display: block !important; 
+            position: absolute; 
+            left: 0; top: 0; 
+            width: 58mm; 
+            padding: 2mm; 
+            color: #000; 
+            font-family: sans-serif; 
           }
-          img { display: block !important; max-width: 50px !important; height: auto !important; object-fit: contain; margin: 0 auto; }
-          svg { display: block !important; margin: 0 auto; }
           .no-print { display: none !important; }
         }
       `}} />
@@ -316,17 +306,17 @@ export default function POSPage() {
             <div className="flex items-center gap-3">
               {storeSettings?.logo_url ? (
                 <div className="w-10 h-10 relative rounded-md overflow-hidden bg-white border border-gray-100">
-                  <img src={storeSettings.logo_url} alt="Logo" className="w-full h-full object-contain p-1" crossOrigin="anonymous" loading="eager" />
+                  <img src={storeSettings.logo_url} alt="Logo" className="w-full h-full object-contain p-1" />
                 </div>
               ) : <div className="w-10 h-10 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold text-lg">{storeSettings?.name ? storeSettings.name.charAt(0) : "S"}</div>}
               <h1 className="text-xl font-black text-gray-800 tracking-tight hidden sm:block">{storeSettings?.name || "Standard POS"}</h1>
             </div>
-            <button onClick={() => { playBeep(); router.push("/"); }} className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs md:text-sm border border-gray-200 active:scale-95">🏠 หน้าหลัก</button>
+            <button onClick={() => { playBeep(); router.push("/"); }} className="cursor-pointer px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs md:text-sm border border-gray-200 active:scale-95">🏠 หน้าหลัก</button>
           </div>
           <div className="flex w-full md:w-auto gap-2 mt-3 md:mt-0 overflow-x-auto pb-1 md:pb-0">
             <input type="text" placeholder="ค้นหาสินค้า..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg w-full md:w-48 outline-none bg-gray-50 text-sm focus:border-blue-400 focus:bg-white flex-shrink-0" />
-            <button onClick={loadPendingOrders} className="bg-orange-100 text-orange-700 px-3 py-2 rounded-lg font-bold shadow-sm text-sm flex-shrink-0">🧾 บิลค้าง</button>
-            <button onClick={() => { playBeep(); router.push("/products"); }} className="bg-gray-800 text-white px-3 py-2 rounded-lg font-bold shadow-md text-sm flex-shrink-0">📦 คลัง</button>
+            <button onClick={loadPendingOrders} className="cursor-pointer bg-orange-100 text-orange-700 px-3 py-2 rounded-lg font-bold shadow-sm text-sm flex-shrink-0">🧾 บิลค้าง</button>
+            <button onClick={() => { playBeep(); router.push("/products"); }} className="cursor-pointer bg-gray-800 text-white px-3 py-2 rounded-lg font-bold shadow-md text-sm flex-shrink-0">📦 คลัง</button>
           </div>
         </header>
 
@@ -342,7 +332,7 @@ export default function POSPage() {
                   <div key={product.id} onClick={() => addToCart(product)} className={`bg-white p-3 rounded-2xl shadow-sm border ${product.stock_qty <= 0 ? 'border-red-200 opacity-60' : 'border-gray-100 hover:border-blue-400 cursor-pointer'} flex flex-col active:scale-95`}>
                     <div className="w-full aspect-square bg-gray-50 rounded-xl mb-2 flex items-center justify-center relative overflow-hidden border border-gray-100 p-1">
                       {product.image_url ? (
-                        <img src={product.image_url} alt={product.name} className="w-full h-full object-cover rounded-lg" crossOrigin="anonymous" loading="lazy" />
+                        <img src={product.image_url} alt={product.name} className="w-full h-full object-cover rounded-lg" />
                       ) : <span className="text-gray-400 text-xs">ไม่มีรูป</span>}
                     </div>
                     <h3 className="font-bold text-gray-800 text-sm line-clamp-2 h-10 mt-1">{product.name}</h3>
@@ -361,8 +351,8 @@ export default function POSPage() {
               <div className="p-3 bg-gray-900 text-white flex justify-between items-center rounded-t-3xl md:rounded-none">
                 <h2 className="text-sm font-bold flex items-center gap-2">🛒 ตะกร้า <span className="bg-blue-500 px-2 py-0.5 rounded-full">{totalItems}</span></h2>
                 <div className="flex gap-2">
-                  <button onClick={() => { playBeep(); setCart([]); }} className="text-xs text-red-400 bg-red-400/10 px-2 py-1 rounded">ล้างทั้งหมด</button>
-                  <button className="md:hidden text-white font-bold px-2" onClick={() => { playBeep(); setIsMobileCartOpen(false); }}>✕</button>
+                  <button onClick={() => { playBeep(); setCart([]); }} className="cursor-pointer text-xs text-red-400 bg-red-400/10 px-2 py-1 rounded">ล้างทั้งหมด</button>
+                  <button className="cursor-pointer md:hidden text-white font-bold px-2" onClick={() => { playBeep(); setIsMobileCartOpen(false); }}>✕</button>
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-gray-50/50">
@@ -375,10 +365,10 @@ export default function POSPage() {
                           <div className="text-xs font-bold text-blue-600">฿{item.price.toLocaleString()}</div>
                         </div>
                         <div className="flex items-center gap-1 bg-gray-50 px-1 rounded-lg border border-gray-100">
-                          <button onClick={() => decreaseQuantity(item.id)} className="w-5 h-5 bg-white rounded shadow-sm font-bold text-gray-600">-</button>
+                          <button onClick={() => decreaseQuantity(item.id)} className="cursor-pointer w-5 h-5 bg-white rounded shadow-sm font-bold text-gray-600">-</button>
                           <span className="font-bold text-xs w-4 text-center">{item.cart_qty}</span>
-                          <button onClick={() => addToCart(item)} className="w-5 h-5 bg-blue-600 rounded text-white shadow-sm font-bold">+</button>
-                          <button onClick={() => removeFromCart(item.id)} className="w-5 h-5 bg-red-100 rounded text-red-500 shadow-sm font-bold ml-1">✕</button>
+                          <button onClick={() => addToCart(item)} className="cursor-pointer w-5 h-5 bg-blue-600 rounded text-white shadow-sm font-bold">+</button>
+                          <button onClick={() => removeFromCart(item.id)} className="cursor-pointer w-5 h-5 bg-red-100 rounded text-red-500 shadow-sm font-bold ml-1">✕</button>
                         </div>
                       </div>
                       <input type="text" placeholder="หมายเหตุ (เช่น หวานน้อย)..." value={item.remark || ""} onChange={(e) => updateRemark(item.id, e.target.value)} className="w-full text-[11px] px-2 py-1 border border-gray-200 rounded outline-none bg-gray-50" />
@@ -391,7 +381,7 @@ export default function POSPage() {
                   <span className="text-gray-500 font-bold text-sm">ยอดรวม</span>
                   <span className="text-2xl font-black text-blue-600">฿{totalAmount.toLocaleString()}</span>
                 </div>
-                <button onClick={() => { playBeep(); setPaymentMethod("cash"); setCashReceived(""); setShowCheckout(true); }} disabled={cart.length === 0} className={`w-full py-3 rounded-xl font-bold text-base transition-all ${cart.length > 0 ? "bg-blue-600 text-white shadow-lg" : "bg-gray-200 text-gray-400"}`}>
+                <button onClick={() => { playBeep(); setPaymentMethod("cash"); setCashReceived(""); setShowCheckout(true); }} disabled={cart.length === 0} className={`cursor-pointer w-full py-3 rounded-xl font-bold text-base transition-all ${cart.length > 0 ? "bg-blue-600 text-white shadow-lg" : "bg-gray-200 text-gray-400"}`}>
                   ดำเนินการชำระเงิน
                 </button>
               </div>
@@ -403,11 +393,10 @@ export default function POSPage() {
       {showCheckout && storeSettings && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[90vh]">
-            
             <div className="w-full md:w-1/2 bg-gray-50 p-6 flex flex-col border-r border-gray-200 overflow-y-auto">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-black text-gray-800">📝 สรุปใบแจ้งหนี้</h2>
-                <button onClick={() => { playBeep(); setShowCheckout(false); }} className="md:hidden text-gray-500 font-bold text-2xl w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">✕</button>
+                <button onClick={() => { playBeep(); setShowCheckout(false); }} className="cursor-pointer md:hidden text-gray-500 font-bold text-2xl w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">✕</button>
               </div>
               <div className="space-y-3 border-b border-dashed border-gray-300 pb-4 mb-4 flex-1">
                 {cart.map((item, idx) => (
@@ -427,23 +416,20 @@ export default function POSPage() {
 
             <div className="w-full md:w-1/2 bg-white p-6 flex flex-col">
               <div className="hidden md:flex justify-end mb-2">
-                <button onClick={() => { playBeep(); setShowCheckout(false); }} className="text-gray-400 hover:text-red-500 font-bold text-2xl">✕</button>
+                <button onClick={() => { playBeep(); setShowCheckout(false); }} className="cursor-pointer text-gray-400 hover:text-red-500 font-bold text-2xl">✕</button>
               </div>
               
               <label className="block text-sm font-bold text-gray-700 mb-3">รูปแบบการชำระเงิน</label>
               <div className="grid grid-cols-2 gap-3 mb-6">
-                <button onClick={() => { playBeep(); setPaymentMethod("cash"); }} className={`py-4 rounded-xl font-bold border-2 text-lg transition-all ${paymentMethod === "cash" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}>💵 เงินสด</button>
-                <button onClick={() => { playBeep(); setPaymentMethod("transfer"); }} className={`py-4 rounded-xl font-bold border-2 text-lg transition-all ${paymentMethod === "transfer" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}>📱 โอนเงิน/QR</button>
+                <button onClick={() => { playBeep(); setPaymentMethod("cash"); }} className={`cursor-pointer py-4 rounded-xl font-bold border-2 text-lg transition-all ${paymentMethod === "cash" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-gray-200 text-gray-500"}`}>💵 เงินสด</button>
+                <button onClick={() => { playBeep(); setPaymentMethod("transfer"); }} className={`cursor-pointer py-4 rounded-xl font-bold border-2 text-lg transition-all ${paymentMethod === "transfer" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-gray-200 text-gray-500"}`}>📱 โอนเงิน/QR</button>
               </div>
 
               <div className="flex-1 flex flex-col justify-center">
                 {paymentMethod === "transfer" && (
                   <div className="text-center p-6 bg-blue-50 rounded-2xl border border-blue-100 shadow-inner flex flex-col items-center justify-center">
                     {storeSettings.promptpay_number ? (
-                      <>
-                        <div className="bg-white p-3 rounded-xl shadow-md"><QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, totalAmount)} size={180} /></div>
-                        <p className="font-bold text-blue-800 mt-4">สแกน QR Code เพื่อโอนเงิน</p>
-                      </>
+                      <><div className="bg-white p-3 rounded-xl shadow-md"><QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, totalAmount)} size={180} /></div><p className="font-bold text-blue-800 mt-4">สแกน QR Code เพื่อโอนเงิน</p></>
                     ) : <p className="text-red-500 font-bold">กรุณาตั้งค่าเบอร์ PromptPay ก่อน</p>}
                   </div>
                 )}
@@ -462,12 +448,10 @@ export default function POSPage() {
 
               <div className="mt-6 flex flex-col gap-3">
                 <div className="flex gap-3">
-                  <button onClick={() => { playBeep(); window.print(); }} className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-4 rounded-xl flex-1 text-sm border border-gray-300 shadow-sm flex items-center justify-center gap-2">🖨️ แจ้งหนี้</button>
-                  <button onClick={handleSavePendingOrder} disabled={isProcessing} className="bg-orange-50 hover:bg-orange-100 text-orange-700 font-bold py-4 rounded-xl flex-1 text-sm border border-orange-200 shadow-sm flex items-center justify-center gap-2">⏳ บันทึกค้างชำระ</button>
+                  <button onClick={() => { playBeep(); window.print(); }} className="cursor-pointer bg-gray-100 text-gray-800 font-bold py-4 rounded-xl flex-1 text-sm border">🖨️ แจ้งหนี้</button>
+                  <button onClick={handleSavePendingOrder} disabled={isProcessing} className="cursor-pointer bg-orange-50 text-orange-700 font-bold py-4 rounded-xl flex-1 text-sm border">⏳ บันทึกค้างชำระ</button>
                 </div>
-                <button onClick={handleConfirmPayment} disabled={isProcessing} className="w-full py-5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-black text-lg shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2">
-                  ✅ ยืนยันชำระเงิน
-                </button>
+                <button onClick={handleConfirmPayment} disabled={isProcessing} className="cursor-pointer w-full py-5 bg-green-600 text-white rounded-xl font-black text-lg shadow-lg active:scale-95">✅ ยืนยันชำระเงิน</button>
               </div>
             </div>
           </div>
@@ -479,8 +463,8 @@ export default function POSPage() {
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[90vh]">
             <div className="w-full md:w-1/2 bg-gray-50 p-6 flex flex-col border-r border-gray-200 overflow-y-auto">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-black text-orange-600">🧾 รายการบิลค้างชำระ</h2>
-                <button onClick={() => { playBeep(); setShowPendingModal(false); setSelectedPendingOrder(null); }} className="md:hidden text-gray-500 font-bold text-2xl w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">✕</button>
+                <h2 className="text-xl font-black text-orange-600">🧾 บิลค้างชำระ</h2>
+                <button onClick={() => { playBeep(); setShowPendingModal(false); setSelectedPendingOrder(null); }} className="cursor-pointer md:hidden text-gray-500 font-bold text-2xl w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">✕</button>
               </div>
               {!selectedPendingOrder ? (
                 pendingOrders.length === 0 ? <p className="text-center text-gray-500 mt-10">ไม่มีบิลค้างชำระ</p> : (
@@ -493,7 +477,7 @@ export default function POSPage() {
                         </div>
                         <div className="flex items-center gap-3 w-full sm:w-auto justify-between">
                           <span className="font-black text-blue-600">฿{order.total_amount.toLocaleString()}</span>
-                          <button onClick={() => { playBeep(); setSelectedPendingOrder(order); setPaymentMethod("cash"); setCashReceived(""); }} className="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-bold text-sm">เลือก</button>
+                          <button onClick={() => { playBeep(); setSelectedPendingOrder(order); setPaymentMethod("cash"); setCashReceived(""); }} className="cursor-pointer bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-bold text-sm">เลือก</button>
                         </div>
                       </div>
                     ))}
@@ -501,17 +485,16 @@ export default function POSPage() {
                 )
               ) : (
                 <div className="flex flex-col h-full">
-                  <button onClick={() => { playBeep(); setSelectedPendingOrder(null); }} className="text-sm font-bold text-gray-500 hover:text-gray-800 mb-4 self-start">← ย้อนกลับ</button>
-                  
+                  <button onClick={() => { playBeep(); setSelectedPendingOrder(null); }} className="cursor-pointer text-sm font-bold text-gray-500 hover:text-gray-800 mb-4 self-start">← ย้อนกลับ</button>
                   <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm mb-4 text-center">
                     <p className="text-gray-500 font-medium text-xs">เลขที่บิล</p>
                     <p className="text-lg font-bold text-gray-800">{selectedPendingOrder.doc_no}</p>
                   </div>
-
                   <div className="flex-1 overflow-y-auto mb-4 bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
                     <p className="font-bold text-gray-800 mb-3 border-b pb-2">รายการสินค้าในบิล:</p>
                     <div className="space-y-3">
-                      {selectedPendingOrder.order_items.map((item, idx) => (
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      {selectedPendingOrder.order_items.map((item: any, idx: number) => (
                         <div key={idx} className="flex justify-between text-sm">
                           <div>
                             <p className="font-bold text-gray-700">{item.qty} x {item.products?.name || "สินค้า"}</p>
@@ -522,7 +505,6 @@ export default function POSPage() {
                       ))}
                     </div>
                   </div>
-
                   <div className="bg-blue-100 p-4 rounded-2xl flex justify-between items-center text-blue-700">
                     <span className="font-bold">ยอดสุทธิ</span>
                     <span className="text-2xl font-black">฿{selectedPendingOrder.total_amount.toLocaleString()}</span>
@@ -533,21 +515,19 @@ export default function POSPage() {
 
             <div className={`w-full md:w-1/2 bg-white p-6 flex flex-col ${!selectedPendingOrder ? 'hidden md:flex opacity-50 pointer-events-none' : ''}`}>
               <div className="hidden md:flex justify-end mb-2">
-                <button onClick={() => { playBeep(); setShowPendingModal(false); setSelectedPendingOrder(null); }} className="text-gray-400 hover:text-red-500 font-bold text-2xl">✕</button>
+                <button onClick={() => { playBeep(); setShowPendingModal(false); setSelectedPendingOrder(null); }} className="cursor-pointer text-gray-400 hover:text-red-500 font-bold text-2xl">✕</button>
               </div>
               <label className="block text-sm font-bold text-gray-700 mb-3">รูปแบบการชำระเงิน</label>
               <div className="grid grid-cols-2 gap-3 mb-6">
-                <button onClick={() => { playBeep(); setPaymentMethod("cash"); }} className={`py-4 rounded-xl font-bold border-2 text-lg transition-all ${paymentMethod === "cash" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-gray-200 text-gray-500"}`}>💵 เงินสด</button>
-                <button onClick={() => { playBeep(); setPaymentMethod("transfer"); }} className={`py-4 rounded-xl font-bold border-2 text-lg transition-all ${paymentMethod === "transfer" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-gray-200 text-gray-500"}`}>📱 โอนเงิน/QR</button>
+                <button onClick={() => { playBeep(); setPaymentMethod("cash"); }} className={`cursor-pointer py-4 rounded-xl font-bold border-2 text-lg transition-all ${paymentMethod === "cash" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-gray-200 text-gray-500"}`}>💵 เงินสด</button>
+                <button onClick={() => { playBeep(); setPaymentMethod("transfer"); }} className={`cursor-pointer py-4 rounded-xl font-bold border-2 text-lg transition-all ${paymentMethod === "transfer" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-gray-200 text-gray-500"}`}>📱 โอนเงิน/QR</button>
               </div>
 
               <div className="flex-1 flex flex-col justify-center">
                 {paymentMethod === "transfer" && selectedPendingOrder && (
                   <div className="text-center p-6 bg-blue-50 rounded-2xl border border-blue-100 flex flex-col items-center">
                     {storeSettings?.promptpay_number ? (
-                      <><div className="bg-white p-3 rounded-xl">
-                        <QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, selectedPendingOrder.total_amount)} size={180} />
-                        </div><p className="font-bold text-blue-800 mt-4">สแกน QR Code</p></>
+                      <><div className="bg-white p-3 rounded-xl"><QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, selectedPendingOrder.total_amount)} size={180} /></div><p className="font-bold text-blue-800 mt-4">สแกน QR Code</p></>
                     ) : <p className="text-red-500 font-bold">ไม่มีเบอร์ PromptPay</p>}
                   </div>
                 )}
@@ -558,7 +538,7 @@ export default function POSPage() {
                   </div>
                 )}
               </div>
-              <button onClick={handlePayPendingOrder} disabled={isProcessing || !selectedPendingOrder} className="mt-6 w-full py-5 bg-green-600 text-white rounded-xl font-black text-lg shadow-lg active:scale-95">✅ ยืนยันรับเงิน</button>
+              <button onClick={handlePayPendingOrder} disabled={isProcessing || !selectedPendingOrder} className="cursor-pointer mt-6 w-full py-5 bg-green-600 text-white rounded-xl font-black text-lg shadow-lg active:scale-95">✅ ยืนยันรับเงิน</button>
             </div>
           </div>
         </div>
@@ -569,23 +549,19 @@ export default function POSPage() {
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
             <div className="p-4 bg-orange-500 text-white flex justify-between items-center">
               <h2 className="font-bold text-lg">⏳ บันทึกค้างชำระสำเร็จ</h2>
-              <button onClick={() => { playBeep(); setSavedPendingReceipt(null); }} className="text-white font-bold text-xl">✕</button>
+              <button onClick={() => { playBeep(); setSavedPendingReceipt(null); }} className="cursor-pointer text-white font-bold text-xl">✕</button>
             </div>
             <div className="p-6 bg-white overflow-y-auto max-h-[60vh]">
               <div className="text-center mb-4">
                 <h1 className="font-black text-xl text-gray-800">{storeSettings.name}</h1>
                 <p className="text-gray-500 text-xs mt-1">บิลค้างเลขที่: <span className="font-bold">{savedPendingReceipt.docNo}</span></p>
-                <div className="mt-3 inline-block bg-orange-100 text-orange-700 px-4 py-1.5 rounded-full font-bold text-sm tracking-wide">
-                  รอรับเงินหน้างาน
-                </div>
+                <div className="mt-3 inline-block bg-orange-100 text-orange-700 px-4 py-1.5 rounded-full font-bold text-sm tracking-wide">รอรับเงินหน้างาน</div>
               </div>
               <div className="space-y-2 mb-4 border-b border-dashed border-gray-300 pb-4 text-sm">
                 {savedPendingReceipt.items.map((item, idx) => (
-                  <div key={idx} className="flex flex-col">
-                    <div className="flex justify-between items-start">
-                      <span className="font-bold text-gray-800">{item.cart_qty} x {item.name}</span>
-                      <span className="font-bold text-gray-800">฿{(item.price * item.cart_qty).toLocaleString()}</span>
-                    </div>
+                  <div key={idx} className="flex justify-between items-start">
+                    <span className="font-bold text-gray-800">{item.cart_qty} x {item.name}</span>
+                    <span className="font-bold text-gray-800">฿{(item.price * item.cart_qty).toLocaleString()}</span>
                   </div>
                 ))}
               </div>
@@ -594,7 +570,7 @@ export default function POSPage() {
               </div>
             </div>
             <div className="p-4 bg-gray-50 border-t">
-              <button onClick={() => { playBeep(); setSavedPendingReceipt(null); }} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3.5 rounded-xl shadow-md transition-colors">ตกลง / ปิด</button>
+              <button onClick={() => { playBeep(); setSavedPendingReceipt(null); }} className="cursor-pointer w-full bg-orange-500 text-white font-bold py-3.5 rounded-xl">ตกลง / ปิด</button>
             </div>
           </div>
         </div>
@@ -605,7 +581,7 @@ export default function POSPage() {
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
             <div className="p-4 bg-green-500 text-white flex justify-between items-center">
               <h2 className="font-bold text-lg">✅ ชำระเงินเรียบร้อย</h2>
-              <button onClick={() => { playBeep(); setReceiptData(null); }} className="text-white font-bold text-xl">✕</button>
+              <button onClick={() => { playBeep(); setReceiptData(null); }} className="cursor-pointer text-white font-bold text-xl">✕</button>
             </div>
             <div className="p-6 bg-white overflow-y-auto max-h-[60vh]">
               <div className="text-center mb-4">
@@ -639,18 +615,19 @@ export default function POSPage() {
               </div>
             </div>
             <div className="p-4 bg-gray-50 border-t flex gap-3">
-              <button onClick={() => { playBeep(); setReceiptData(null); }} className="flex-1 bg-white border border-gray-300 text-gray-700 font-bold py-3.5 rounded-xl">ปิด</button>
-              <button onClick={() => { playBeep(); window.print(); }} className="flex-[2] bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-md">🖨️ พิมพ์สลิป (58mm)</button>
+              <button onClick={() => { playBeep(); setReceiptData(null); }} className="cursor-pointer flex-1 bg-white border text-gray-700 font-bold py-3.5 rounded-xl">ปิด</button>
+              <button onClick={() => { playBeep(); window.print(); }} className="cursor-pointer flex-[2] bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-md">🖨️ พิมพ์สลิป</button>
             </div>
           </div>
         </div>
       )}
 
-      <div id="invoice-print-area">
+      {/* --- ส่วนระบบพิมพ์ภาพกระดาษ 58mm (แสดงผล 100% แน่นอน) --- */}
+      <div className="print-only">
         {showCheckout && !receiptData && (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '4px' }}>
-              {storeSettings?.logo_url && <img src={storeSettings.logo_url} alt="Logo" style={{ maxWidth: '40px', margin: '0 auto 4px auto', display: 'block' }} crossOrigin="anonymous" loading="eager" />}
+              {storeSettings?.logo_url && <img src={storeSettings.logo_url} alt="Logo" style={{ maxWidth: '40px', margin: '0 auto 4px auto' }} />}
               <h1 style={{ fontWeight: 'bold', fontSize: '14px', margin: 0 }}>{storeSettings?.name}</h1>
               <p style={{ fontSize: '10px', margin: '2px 0', fontWeight: 'bold' }}>{storeSettings?.invoice_title || "ใบแจ้งหนี้"}</p>
             </div>
@@ -668,21 +645,13 @@ export default function POSPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '12px' }}>
               <span>ยอดต้องชำระ</span><span>{totalAmount.toFixed(2)}</span>
             </div>
-            {storeSettings?.promptpay_number && (
-              <div style={{ textAlign: 'center', marginTop: '6px' }}>
-                <QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, totalAmount)} size={90} />
-                <p style={{ fontSize: '8px', margin: '4px 0 0 0' }}>สแกนเพื่อชำระเงิน</p>
-              </div>
-            )}
           </div>
         )}
-      </div>
 
-      <div id="receipt-print-area">
         {receiptData && storeSettings && (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '4px' }}>
-              {storeSettings.logo_url && <img src={storeSettings.logo_url} alt="Logo" style={{ maxWidth: '40px', margin: '0 auto 4px auto', display: 'block' }} crossOrigin="anonymous" loading="eager" />}
+              {storeSettings.logo_url && <img src={storeSettings.logo_url} alt="Logo" style={{ maxWidth: '40px', margin: '0 auto 4px auto' }} />}
               <h1 style={{ fontWeight: 'bold', fontSize: '14px', margin: 0 }}>{storeSettings.name}</h1>
               <p style={{ fontSize: '8px', margin: '2px 0' }}>TAX ID: {storeSettings.tax_id}</p>
               <p style={{ fontSize: '10px', fontWeight: 'bold', margin: '2px 0' }}>{storeSettings.receipt_title || "ใบเสร็จรับเงิน"}</p>

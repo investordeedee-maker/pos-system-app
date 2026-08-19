@@ -1,9 +1,9 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "../../../lib/supabase"; // แก้ไขการถอยโฟลเดอร์ 3 ชั้นให้ถูกต้องแล้ว
 
 interface Product {
   id: string;
@@ -148,7 +148,7 @@ export default function ProductsPage() {
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!storeId) {
-      alert("ไม่พบข้อมูลร้านค้า กรุณาไปที่หน้า /setup-store เพื่อสร้างร้านค้าก่อนครับ");
+      alert("ไม่พบข้อมูลร้านค้า กรุณาไปที่หน้าตั้งค่าร้านค้าก่อนครับ");
       return;
     }
     setIsSubmitting(true);
@@ -163,7 +163,7 @@ export default function ProductsPage() {
         stock_qty: formData.stock_qty,
         unit: formData.unit,
         sort_order: formData.sort_order,
-        is_vat_exempt: formData.is_vat_exempt,
+        is_vat_exempt: formData.is_vat_exempt, // รองรับสินค้าเกษตร (VAT 0%)
         image_url: formData.image_url,
       };
 
@@ -246,13 +246,7 @@ export default function ProductsPage() {
                       <td className="p-4 flex items-center gap-4">
                         {product.image_url ? (
                           <div className="w-20 h-20 bg-white rounded-lg shadow-sm border p-1 flex items-center justify-center relative overflow-hidden">
-                            <Image 
-                              src={product.image_url} 
-                              alt={product.name} 
-                              fill
-                              className="object-contain p-1"
-                              unoptimized 
-                            />
+                            <img src={product.image_url} alt={product.name} className="w-full h-full object-contain p-1" />
                           </div>
                         ) : (
                           <div className="w-20 h-20 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 text-xs border border-gray-200">ไม่มีรูป</div>
@@ -334,14 +328,8 @@ export default function ProductsPage() {
                 <div className="flex items-center gap-4">
                   <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full px-4 py-2 border border-gray-300 rounded-xl file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
                   {formData.image_url && (
-                    <div className="w-12 h-12 relative border rounded-lg overflow-hidden bg-white">
-                      <Image 
-                        src={formData.image_url} 
-                        alt="Preview" 
-                        fill 
-                        className="object-contain" 
-                        unoptimized 
-                      />
+                    <div className="w-12 h-12 relative border rounded-lg overflow-hidden bg-white flex items-center justify-center">
+                      <img src={formData.image_url} alt="Preview" className="w-full h-full object-contain" />
                     </div>
                   )}
                 </div>
@@ -350,7 +338,7 @@ export default function ProductsPage() {
               <div className="pt-2">
                 <label className="flex items-center space-x-3 cursor-pointer p-4 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
                   <input type="checkbox" checked={formData.is_vat_exempt} onChange={(e) => setFormData({...formData, is_vat_exempt: e.target.checked})} className="w-6 h-6 text-blue-600 rounded-md border-gray-300 focus:ring-blue-500" />
-                  <span className="text-sm font-bold text-gray-700">สินค้าเกษตร/ยกเว้นภาษี (เช่น ดอกไม้สด พวงมาลัย) <span className="text-red-500">(VAT 0%)</span></span>
+                  <span className="text-sm font-bold text-gray-700">สินค้าเกษตร/ยกเว้นภาษี (เช่น พวงมาลัย) <span className="text-red-500">(VAT 0%)</span></span>
                 </label>
               </div>
               
