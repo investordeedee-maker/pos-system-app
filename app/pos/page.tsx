@@ -61,6 +61,7 @@ function generatePromptPayPayload(mobileOrId: string, amount: number): string {
   return payloadWithoutCrc + (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
 }
 
+// 🔔 ฟังก์ชันสร้างเสียงติ๊ด (Beep) แบบกังวาน (คล้ายกระดิ่ง/POS)
 const playBeep = () => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,13 +73,19 @@ const playBeep = () => {
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.type = "sine";
-    osc.frequency.setValueAtTime(1200, ctx.currentTime);
-    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    osc.frequency.setValueAtTime(800, ctx.currentTime); // ความถี่เสียง 800Hz ฟังชัด
+    gain.gain.setValueAtTime(0.5, ctx.currentTime); // ความดัง
     osc.start();
-    osc.stop(ctx.currentTime + 0.05);
+    osc.stop(ctx.currentTime + 0.1); // ความยาว 0.1 วินาที
   } catch { 
-    // Ignore error
+    // Ignore audio error
   }
+};
+
+// 🔔 ฟังก์ชันเสียงติ๊ด 2 ครั้ง (สำเร็จ)
+const playSuccessBeep = () => {
+  playBeep();
+  setTimeout(playBeep, 150);
 };
 
 export default function POSPage() {
@@ -89,11 +96,15 @@ export default function POSPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
+  
   const [showCheckout, setShowCheckout] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer">("cash");
   const [cashReceived, setCashReceived] = useState<number | "">("");
   const [isProcessing, setIsProcessing] = useState(false);
+  
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
+  const [savedPendingReceipt, setSavedPendingReceipt] = useState<ReceiptData | null>(null); // State สำหรับ Modal บิลค้างสำเร็จ
+  
   const [showPendingModal, setShowPendingModal] = useState(false);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [selectedPendingOrder, setSelectedPendingOrder] = useState<PendingOrder | null>(null);
@@ -188,6 +199,8 @@ export default function POSPage() {
       for (const item of cart) await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
       setProducts(prev => prev.map(p => { const sold = cart.find(c => c.id === p.id); return sold ? { ...p, stock_qty: p.stock_qty - sold.cart_qty } : p; }));
 
+      setSavedPendingReceipt({ docNo, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod: 'pending', cashReceived: "", changeAmount: 0, date: now });
+      playSuccessBeep();
       setCart([]);
       setShowCheckout(false);
       setIsMobileCartOpen(false);
@@ -227,6 +240,7 @@ export default function POSPage() {
       setProducts(prev => prev.map(p => { const sold = cart.find(c => c.id === p.id); return sold ? { ...p, stock_qty: p.stock_qty - sold.cart_qty } : p; }));
 
       setReceiptData({ docNo, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod, cashReceived: finalCashReceived, changeAmount, date: now });
+      playSuccessBeep();
       setCart([]); setShowCheckout(false); setIsMobileCartOpen(false); setCashReceived("");
     } catch {
        // Ignore error
@@ -257,6 +271,7 @@ export default function POSPage() {
       const cAmount = paymentMethod === "cash" && typeof finalCashReceived === "number" ? finalCashReceived - selectedPendingOrder.total_amount : 0;
 
       setReceiptData({ docNo: selectedPendingOrder.doc_no, items: mappedItems, totalAmount: selectedPendingOrder.total_amount, totalExempt: tExempt, totalVatable: tVatable, vatAmount: vAmount, paymentMethod, cashReceived: finalCashReceived, changeAmount: cAmount, date: new Date() });
+      playSuccessBeep();
       setSelectedPendingOrder(null); setShowPendingModal(false); setCashReceived("");
     } catch {
        // Ignore error
@@ -269,24 +284,22 @@ export default function POSPage() {
 
   return (
     <>
+      {/* 🖨️ CSS แก้ไขระบบพิมพ์ บังคับล้าง Format เดิมให้โชว์รูปได้ 100% */}
       <style dangerouslySetInnerHTML={{
         __html: `
         .print-only { display: none; }
         @media print {
           @page { margin: 0; size: 58mm auto; }
-          html, body { background: white !important; margin: 0 !important; padding: 0 !important; }
-          body * { visibility: hidden; }
-          .print-only, .print-only * { visibility: visible; }
+          body, html { margin: 0; padding: 0; background: white; }
+          .no-print { display: none !important; }
           .print-only { 
             display: block !important; 
-            position: absolute; 
-            left: 0; top: 0; 
             width: 58mm; 
             padding: 2mm; 
             color: #000; 
             font-family: sans-serif; 
           }
-          .no-print { display: none !important; }
+          img { display: block !important; max-width: 40px !important; margin: 0 auto 4px auto !important; }
         }
       `}} />
 
@@ -296,7 +309,7 @@ export default function POSPage() {
             <div className="flex items-center gap-3">
               {storeSettings?.logo_url ? (
                 <div className="w-10 h-10 relative rounded-md overflow-hidden bg-white border border-gray-100">
-                  <img src={storeSettings.logo_url} alt="Logo" className="w-full h-full object-contain p-1" crossOrigin="anonymous" />
+                  <img src={storeSettings.logo_url} alt="Logo" className="w-full h-full object-contain p-1" crossOrigin="anonymous" loading="eager" />
                 </div>
               ) : <div className="w-10 h-10 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold text-lg">{storeSettings?.name ? storeSettings.name.charAt(0) : "S"}</div>}
               <h1 className="text-xl font-black text-gray-800 tracking-tight hidden sm:block">{storeSettings?.name || "Standard POS"}</h1>
@@ -322,7 +335,7 @@ export default function POSPage() {
                   <div key={product.id} onClick={() => addToCart(product)} className={`bg-white p-3 rounded-2xl shadow-sm border ${product.stock_qty <= 0 ? 'border-red-200 opacity-60' : 'border-gray-100 hover:border-blue-400 cursor-pointer'} flex flex-col active:scale-95`}>
                     <div className="w-full aspect-square bg-gray-50 rounded-xl mb-2 flex items-center justify-center relative overflow-hidden border border-gray-100 p-1">
                       {product.image_url ? (
-                        <img src={product.image_url} alt={product.name} className="w-full h-full object-cover rounded-lg" crossOrigin="anonymous" />
+                        <img src={product.image_url} alt={product.name} className="w-full h-full object-cover rounded-lg" crossOrigin="anonymous" loading="lazy" />
                       ) : <span className="text-gray-400 text-xs">ไม่มีรูป</span>}
                     </div>
                     <h3 className="font-bold text-gray-800 text-sm line-clamp-2 h-10 mt-1">{product.name}</h3>
@@ -380,13 +393,14 @@ export default function POSPage() {
         </div>
       </div>
 
+      {/* --- 📝 หน้าต่างออกบิล (แบบกว้าง) --- */}
       {showCheckout && storeSettings && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[90vh]">
             
             <div className="w-full md:w-1/2 bg-gray-50 p-6 flex flex-col border-r border-gray-200 overflow-y-auto">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-black text-gray-800">สรุปใบแจ้งหนี้</h2>
+                <h2 className="text-xl font-black text-gray-800">📝 สรุปใบแจ้งหนี้</h2>
                 <button onClick={() => { playBeep(); setShowCheckout(false); }} className="md:hidden text-gray-500 font-bold text-2xl w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">✕</button>
               </div>
               <div className="space-y-3 border-b border-dashed border-gray-300 pb-4 mb-4 flex-1">
@@ -396,11 +410,11 @@ export default function POSPage() {
                       <span className="font-bold">{item.cart_qty} x {item.name}</span>
                       <span className="font-black text-blue-600">฿{(item.price * item.cart_qty).toLocaleString()}</span>
                     </div>
-                    {item.remark && <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded mt-2 self-start">- หมายเหตุ: {item.remark}</span>}
+                    {item.remark && <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded mt-2 self-start">- {item.remark}</span>}
                   </div>
                 ))}
               </div>
-              <div className="flex justify-between items-center text-2xl font-black text-blue-600 bg-blue-100 p-4 rounded-xl">
+              <div className="flex justify-between items-center text-xl font-black text-blue-600 bg-blue-100 p-4 rounded-xl">
                 <span>ยอดที่ต้องชำระ</span><span>฿{totalAmount.toLocaleString()}</span>
               </div>
             </div>
@@ -454,6 +468,7 @@ export default function POSPage() {
         </div>
       )}
 
+      {/* --- 📝 หน้าต่างบิลค้าง (เพิ่มรายการสินค้าในฝั่งซ้ายแล้ว) --- */}
       {showPendingModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[90vh]">
@@ -482,10 +497,30 @@ export default function POSPage() {
               ) : (
                 <div className="flex flex-col h-full">
                   <button onClick={() => { playBeep(); setSelectedPendingOrder(null); }} className="text-sm font-bold text-gray-500 hover:text-gray-800 mb-4 self-start">← ย้อนกลับ</button>
-                  <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm text-center flex-1 flex flex-col justify-center">
-                    <p className="text-gray-500 font-medium">เลขที่บิลที่เลือก</p>
-                    <p className="text-lg font-bold text-gray-800 mb-2">{selectedPendingOrder.doc_no}</p>
-                    <h3 className="text-4xl font-black text-blue-600 mt-2">฿{selectedPendingOrder.total_amount.toLocaleString()}</h3>
+                  
+                  <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm mb-4 text-center">
+                    <p className="text-gray-500 font-medium text-xs">เลขที่บิล</p>
+                    <p className="text-lg font-bold text-gray-800">{selectedPendingOrder.doc_no}</p>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto mb-4 bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
+                    <p className="font-bold text-gray-800 mb-3 border-b pb-2">รายการสินค้าในบิล:</p>
+                    <div className="space-y-3">
+                      {selectedPendingOrder.order_items.map((item, idx) => (
+                        <div key={idx} className="flex justify-between text-sm">
+                          <div>
+                            <p className="font-bold text-gray-700">{item.qty} x {item.products?.name || "สินค้า"}</p>
+                            {item.remark && <p className="text-xs text-orange-500 bg-orange-50 inline-block px-1 mt-1 rounded">- {item.remark}</p>}
+                          </div>
+                          <p className="font-bold text-gray-800">฿{(item.unit_price * item.qty).toLocaleString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-100 p-4 rounded-2xl flex justify-between items-center text-blue-700">
+                    <span className="font-bold">ยอดสุทธิ</span>
+                    <span className="text-2xl font-black">฿{selectedPendingOrder.total_amount.toLocaleString()}</span>
                   </div>
                 </div>
               )}
@@ -524,6 +559,44 @@ export default function POSPage() {
         </div>
       )}
 
+      {/* --- ✅ หน้าต่าง Modal ใหม่: บันทึกบิลค้างสำเร็จ (ทดแทน Alert ธรรมดา) --- */}
+      {savedPendingReceipt && storeSettings && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+            <div className="p-4 bg-orange-500 text-white flex justify-between items-center">
+              <h2 className="font-bold text-lg">⏳ บันทึกค้างชำระสำเร็จ</h2>
+              <button onClick={() => { playBeep(); setSavedPendingReceipt(null); }} className="text-white font-bold text-xl">✕</button>
+            </div>
+            <div className="p-6 bg-white overflow-y-auto max-h-[60vh]">
+              <div className="text-center mb-4">
+                <h1 className="font-black text-xl text-gray-800">{storeSettings.name}</h1>
+                <p className="text-gray-500 text-xs mt-1">บิลค้างเลขที่: <span className="font-bold">{savedPendingReceipt.docNo}</span></p>
+                <div className="mt-3 inline-block bg-orange-100 text-orange-700 px-4 py-1.5 rounded-full font-bold text-sm tracking-wide">
+                  รอรับเงินหน้างาน
+                </div>
+              </div>
+              <div className="space-y-2 mb-4 border-b border-dashed border-gray-300 pb-4 text-sm">
+                {savedPendingReceipt.items.map((item, idx) => (
+                  <div key={idx} className="flex flex-col">
+                    <div className="flex justify-between items-start">
+                      <span className="font-bold text-gray-800">{item.cart_qty} x {item.name}</span>
+                      <span className="font-bold text-gray-800">฿{(item.price * item.cart_qty).toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between font-black text-lg text-orange-600 bg-orange-50 p-3 rounded-xl">
+                <span>ยอดสุทธิรอชำระ</span><span>฿{savedPendingReceipt.totalAmount.toLocaleString()}</span>
+              </div>
+            </div>
+            <div className="p-4 bg-gray-50 border-t">
+              <button onClick={() => { playBeep(); setSavedPendingReceipt(null); }} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3.5 rounded-xl shadow-md transition-colors">ตกลง / ปิด</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- ✅ หน้าต่างใบเสร็จรับเงิน (สำเร็จ) --- */}
       {receiptData && storeSettings && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
@@ -563,18 +636,19 @@ export default function POSPage() {
               </div>
             </div>
             <div className="p-4 bg-gray-50 border-t flex gap-3">
-              <button onClick={() => { playBeep(); setReceiptData(null); }} className="flex-1 bg-white border border-gray-300 text-gray-700 font-bold py-3.5 rounded-xl">ปิด</button>
+              <button onClick={() => { playBeep(); setReceiptData(null); }} className="flex-1 bg-gray-100 border border-gray-300 text-gray-700 font-bold py-3.5 rounded-xl">ปิด</button>
               <button onClick={() => { playBeep(); window.print(); }} className="flex-[2] bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-md">🖨️ พิมพ์สลิป (58mm)</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* --- 🖨️ โครงสร้าง HTML สำหรับส่งเข้าเครื่องพิมพ์ (ซ่อนอยู่หลังบ้าน) --- */}
       <div className="print-only">
         {showCheckout && !receiptData && (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '4px' }}>
-              {storeSettings?.logo_url && <img src={storeSettings.logo_url} alt="Logo" style={{ maxWidth: '40px', margin: '0 auto 4px auto', display: 'block' }} crossOrigin="anonymous" />}
+              {storeSettings?.logo_url && <img src={storeSettings.logo_url} alt="Logo" style={{ maxWidth: '40px', margin: '0 auto 4px auto', display: 'block' }} crossOrigin="anonymous" loading="eager" />}
               <h1 style={{ fontWeight: 'bold', fontSize: '14px', margin: 0 }}>{storeSettings?.name}</h1>
               <p style={{ fontSize: '10px', margin: '2px 0', fontWeight: 'bold' }}>{storeSettings?.invoice_title || "ใบแจ้งหนี้"}</p>
             </div>
@@ -604,7 +678,7 @@ export default function POSPage() {
         {receiptData && storeSettings && (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '4px' }}>
-              {storeSettings.logo_url && <img src={storeSettings.logo_url} alt="Logo" style={{ maxWidth: '40px', margin: '0 auto 4px auto', display: 'block' }} crossOrigin="anonymous" />}
+              {storeSettings.logo_url && <img src={storeSettings.logo_url} alt="Logo" style={{ maxWidth: '40px', margin: '0 auto 4px auto', display: 'block' }} crossOrigin="anonymous" loading="eager" />}
               <h1 style={{ fontWeight: 'bold', fontSize: '14px', margin: 0 }}>{storeSettings.name}</h1>
               <p style={{ fontSize: '8px', margin: '2px 0' }}>TAX ID: {storeSettings.tax_id}</p>
               <p style={{ fontSize: '10px', fontWeight: 'bold', margin: '2px 0' }}>{storeSettings.receipt_title || "ใบเสร็จรับเงิน"}</p>
