@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../../lib/supabase";
@@ -65,7 +65,11 @@ export default function POSPage() {
   const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
+  
   const [searchQuery, setSearchQuery] = useState("");
+  // 🛠️ เปลี่ยนจาก useState เป็น useRef เพื่อไม่ให้ผิดกฎ React Hooks
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const syncChannelRef = useRef<any>(null);
   
   const [showCheckout, setShowCheckout] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer">("cash");
@@ -98,6 +102,30 @@ export default function POSPage() {
     return () => { isMounted = false; };
   }, [router]);
 
+  // 📡 1. เปิดช่องสัญญาณเชื่อมต่อกับจอฝั่งลูกค้า
+  useEffect(() => {
+    const channel = supabase.channel('pos_sync_channel');
+    channel.subscribe();
+    syncChannelRef.current = channel;
+    return () => { 
+      supabase.removeChannel(channel); 
+      syncChannelRef.current = null;
+    };
+  }, []);
+
+  const totalAmount = cart.reduce((sum, item) => sum + item.price * item.cart_qty, 0);
+
+  // 📡 2. ส่งข้อมูลไปที่จอฝั่งลูกค้าอัตโนมัติ ทุกครั้งที่มีการเปลี่ยนแปลง
+  useEffect(() => {
+    if (syncChannelRef.current) {
+      syncChannelRef.current.send({
+        type: 'broadcast',
+        event: 'cart_update',
+        payload: { cart, totalAmount, paymentMethod, showCheckout }
+      });
+    }
+  }, [cart, totalAmount, paymentMethod, showCheckout]);
+
   const addToCart = (product: Product) => {
     playBeep();
     if (product.stock_qty <= 0) return;
@@ -119,7 +147,6 @@ export default function POSPage() {
   };
   const updateRemark = (id: string, remark: string) => setCart((prev) => prev.map((item) => item.id === id ? { ...item, remark } : item));
 
-  const totalAmount = cart.reduce((sum, item) => sum + item.price * item.cart_qty, 0);
   const totalItems = cart.reduce((sum, item) => sum + item.cart_qty, 0);
   const totalExempt = cart.filter(item => item.is_vat_exempt).reduce((sum, item) => sum + item.price * item.cart_qty, 0);
   const grossVatable = totalAmount - totalExempt;
@@ -157,7 +184,7 @@ export default function POSPage() {
       if (lastOrder && lastOrder.length > 0 && lastOrder[0].doc_no) runningNum = parseInt(lastOrder[0].doc_no.split("-")[1], 10) + 1;
       const docNo = `${prefix}${runningNum.toString().padStart(4, '0')}`;
 
-      const { data: orderData } = await supabase.from("orders").insert([{ store_id: storeSettings.id, doc_no: docNo, order_source: "POS", status: "pending", total_amount: totalAmount, payment_method: "cash" }]).select().single();
+      const { data: orderData } = await supabase.from("orders").insert([{ store_id: storeSettings.id, doc_no: docNo, order_source: "POS", status: "pending", total_amount: totalAmount, payment_method: "cash", kitchen_status: "pending" }]).select().single();
       const orderItemsToInsert = cart.map((item) => ({ order_id: orderData.id, product_id: item.id, qty: item.cart_qty, unit_price: item.price, remark: item.remark || "" }));
       await supabase.from("order_items").insert(orderItemsToInsert);
       for (const item of cart) await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
@@ -181,7 +208,7 @@ export default function POSPage() {
       if (lastOrder && lastOrder.length > 0 && lastOrder[0].doc_no) runningNum = parseInt(lastOrder[0].doc_no.split("-")[1], 10) + 1;
       const docNo = `${prefix}${runningNum.toString().padStart(4, '0')}`;
 
-      const { data: orderData } = await supabase.from("orders").insert([{ store_id: storeSettings.id, doc_no: docNo, order_source: "POS", status: "completed", total_amount: totalAmount, payment_method: paymentMethod }]).select().single();
+      const { data: orderData } = await supabase.from("orders").insert([{ store_id: storeSettings.id, doc_no: docNo, order_source: "POS", status: "completed", total_amount: totalAmount, payment_method: paymentMethod, kitchen_status: "pending" }]).select().single();
       const orderItemsToInsert = cart.map((item) => ({ order_id: orderData.id, product_id: item.id, qty: item.cart_qty, unit_price: item.price, remark: item.remark || "" }));
       await supabase.from("order_items").insert(orderItemsToInsert);
       for (const item of cart) await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
@@ -664,4 +691,4 @@ export default function POSPage() {
       </div>
     </> 
   );
-} 
+}

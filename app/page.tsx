@@ -102,6 +102,16 @@ export default function Home() {
             <div className="w-14 h-14 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">🏪</div>
             <div><h2 className="text-lg font-black text-gray-800">ข้อมูลโปรไฟล์ร้าน</h2><p className="text-xs text-gray-500 mt-1">จัดการชื่อร้าน โลโก้ ที่อยู่</p></div>
           </button>
+
+          <button onClick={() => window.open("/kitchen", "_blank")} className="cursor-pointer flex items-center p-6 bg-gray-900 rounded-3xl shadow-sm border border-gray-700 hover:shadow-lg hover:border-orange-500 transition-all text-left group">
+            <div className="w-14 h-14 bg-gray-800 text-orange-500 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">👨‍🍳</div>
+            <div><h2 className="text-lg font-black text-white">จอห้องครัว (KDS)</h2><p className="text-xs text-gray-400 mt-1">คิวทำอาหารสำหรับพ่อครัว</p></div>
+          </button>
+
+          <button onClick={() => window.open("/customer-display", "_blank")} className="cursor-pointer flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-pink-300 transition-all text-left group">
+            <div className="w-14 h-14 bg-pink-50 text-pink-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">🖥️</div>
+            <div><h2 className="text-lg font-black text-gray-800">จอฝั่งลูกค้า</h2><p className="text-xs text-gray-500 mt-1">แสดงยอดเงินและ QR สแกนจ่าย</p></div>
+          </button>
         </div>
 
       </div>
