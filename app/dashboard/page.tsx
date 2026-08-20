@@ -1,4 +1,6 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
@@ -19,6 +21,7 @@ interface Order {
   status: string;
   payment_method: string;
   order_items: OrderItem[];
+  slip_image?: string;
 }
 
 interface BestSeller {
@@ -36,7 +39,7 @@ let audioCtx: AudioContext | null = null;
 const playBeep = () => {
   try {
     if (!audioCtx) {
-      const AudioContextClass = window.AudioContext || (window as CustomWindow).webkitAudioContext;
+      const AudioContextClass = window.AudioContext || (window as unknown as CustomWindow).webkitAudioContext;
       if (AudioContextClass) audioCtx = new AudioContextClass();
     }
     if (!audioCtx) return;
@@ -130,7 +133,7 @@ export default function DashboardPage() {
             <h1 className="text-2xl font-black text-gray-800">📊 แดชบอร์ดวิเคราะห์ยอดขายระดับมืออาชีพ</h1>
             <p className="text-xs text-gray-500 mt-0.5">วิเคราะห์ข้อมูลการขาย สินค้าขายดี และสถานะบิลตามช่วงเวลา</p>
           </div>
-          <button onClick={() => router.push("/pos")} className="cursor-pointer px-5 py-2.5 bg-gray-900 text-white font-bold rounded-xl shadow-md hover:bg-gray-800 transition-all">
+          <button onClick={() => { playBeep(); router.push("/pos"); }} className="cursor-pointer px-5 py-2.5 bg-gray-900 text-white font-bold rounded-xl shadow-md hover:bg-gray-800 transition-all">
             ← กลับหน้า POS
           </button>
         </div>
@@ -146,8 +149,8 @@ export default function DashboardPage() {
             <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-3 py-2 border rounded-xl outline-none font-medium bg-gray-50" />
           </div>
           <div className="flex gap-2 ml-auto">
-            <button onClick={() => { setStartDate(todayStr); setEndDate(todayStr); }} className="cursor-pointer px-3 py-2 bg-blue-50 text-blue-700 font-bold rounded-xl text-xs">วันนี้</button>
-            <button onClick={() => { setStartDate(firstDayOfMonth); setEndDate(todayStr); }} className="cursor-pointer px-3 py-2 bg-blue-50 text-blue-700 font-bold rounded-xl text-xs">เดือนนี้</button>
+            <button onClick={() => { playBeep(); setStartDate(todayStr); setEndDate(todayStr); }} className="cursor-pointer px-3 py-2 bg-blue-50 text-blue-700 font-bold rounded-xl text-xs">วันนี้</button>
+            <button onClick={() => { playBeep(); setStartDate(firstDayOfMonth); setEndDate(todayStr); }} className="cursor-pointer px-3 py-2 bg-blue-50 text-blue-700 font-bold rounded-xl text-xs">เดือนนี้</button>
           </div>
         </div>
 
@@ -270,6 +273,13 @@ export default function DashboardPage() {
                 <span>ยอดสุทธิรวม</span>
                 <span>฿{selectedOrder.total_amount.toLocaleString()}</span>
               </div>
+              
+              {selectedOrder.slip_image && (
+                <div className="mt-3 p-3 bg-gray-50 rounded-xl border border-gray-200">
+                  <p className="text-xs font-bold text-gray-500 mb-2">สลิปที่แนบมา:</p>
+                  <img src={selectedOrder.slip_image} alt="Slip" className="w-full rounded-lg object-contain max-h-64" />
+                </div>
+              )}
             </div>
 
             <div className="p-4 bg-gray-50 border-t">

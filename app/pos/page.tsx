@@ -11,20 +11,17 @@ interface CartItem extends Product { cart_qty: number; remark?: string; }
 interface StoreSettings { id: string; name: string; address: string; logo_url: string; promptpay_number: string; phone_number: string; receipt_title: string; invoice_title: string; tax_id: string; receipt_footer: string; }
 interface ReceiptData { docNo: string; items: CartItem[]; totalAmount: number; totalExempt: number; totalVatable: number; vatAmount: number; paymentMethod: string; cashReceived: number | ""; changeAmount: number; date: Date; }
 interface PendingOrderItem { product_id: string; unit_price: number; qty: number; remark?: string; products?: { name: string; is_vat_exempt: boolean; }; }
-interface PendingOrder { id: string; doc_no: string; created_at: string; total_amount: number; order_items: PendingOrderItem[]; }
+interface PendingOrder { id: string; doc_no: string; created_at: string; total_amount: number; order_items: PendingOrderItem[]; slip_image?: string; }
 interface CustomWindow extends Window { webkitAudioContext?: typeof AudioContext; }
 
-// 🛠️ แก้ไขฟังก์ชันการสร้าง PromptPay ให้รองรับทั้งเบอร์โทรและบัตรประชาชนอย่างถูกต้อง
 function generatePromptPayPayload(mobileOrId: string, amount: number): string {
   const cleanId = mobileOrId.replace(/[^0-9]/g, "");
   let targetField = "";
   
   if (cleanId.length === 10) {
-    // ใช้รหัส "01" สำหรับเบอร์มือถือ
     const formattedMobile = "0066" + cleanId.substring(1);
     targetField = "01" + formattedMobile.length.toString().padStart(2, "0") + formattedMobile;
   } else if (cleanId.length === 13) {
-    // ใช้รหัส "02" สำหรับบัตรประชาชน
     targetField = "0213" + cleanId;
   } else return "";
 
@@ -451,6 +448,13 @@ export default function POSPage() {
                       <span className="font-bold text-sm">ยอดสุทธิ</span>
                       <span className="text-xl font-black">฿{selectedPendingOrder.total_amount.toLocaleString()}</span>
                     </div>
+
+                    {selectedPendingOrder.slip_image && (
+                      <div className="mt-3 p-3 bg-gray-50 rounded-xl border border-gray-200 shrink-0">
+                        <p className="text-xs font-bold text-gray-500 mb-2">หลักฐานการโอนเงิน (สลิป):</p>
+                        <img src={selectedPendingOrder.slip_image} alt="Slip" className="w-full rounded-lg object-contain max-h-48" />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -562,7 +566,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* 🖨️ โครงสร้างการพิมพ์ที่จัดรูปแบบตามต้นฉบับอย่างสมบูรณ์ */}
       <div className="print-area">
         {showCheckout && !receiptData && (
           <div>
