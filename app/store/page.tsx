@@ -27,33 +27,47 @@ interface StoreSettings {
   promptpay_number: string;
 }
 
-// 🛠️ แก้ไขฟังก์ชันการสร้าง PromptPay ให้ถูกต้องตามมาตรฐาน
+// กำหนด Type ให้ชัดเจนแทนการใช้ any
+interface OrderPayload {
+  store_id: string;
+  doc_no: string;
+  order_source: string;
+  status: string;
+  total_amount: number;
+  payment_method: string;
+  customer_name: string;
+  customer_phone: string;
+  delivery_address: string;
+  slip_image?: string;
+}
+
 function generatePromptPayPayload(mobileOrId: string, amount: number): string {
-  const cleanId = mobileOrId.replace(/[^0-9]/g, "");
+  const sanitizeId = mobileOrId.replace(/[^0-9]/g, "");
   let targetField = "";
-  if (cleanId.length === 10) {
-    const formattedMobile = "0066" + cleanId.substring(1);
-    // เปลี่ยนจาก "0066" เป็น "01" (รหัสสำหรับเบอร์มือถือ)
-    targetField = "01" + formattedMobile.length.toString().padStart(2, "0") + formattedMobile;
-  } else if (cleanId.length === 13) {
-    // ใช้รหัส "02" สำหรับบัตรประชาชน
-    targetField = "0213" + cleanId;
-  } else return "";
   
-  const merchantAccountInfo = "0016A000000677010111" + targetField;
-  const tag29 = "29" + merchantAccountInfo.length.toString().padStart(2, "0") + merchantAccountInfo;
-  const asciiAmount = amount.toFixed(2);
-  const payloadWithoutCrc = "000201" + "010211" + tag29 + "5802TH" + "5303764" + "54" + asciiAmount.length.toString().padStart(2, "0") + asciiAmount + "6304";
+  if (sanitizeId.length === 10) {
+    targetField = "01130066" + sanitizeId.substring(1);
+  } else if (sanitizeId.length === 13) {
+    targetField = "0213" + sanitizeId;
+  } else {
+    return "";
+  }
+  
+  const accInfo = "0016A000000677010111" + targetField;
+  const tag29 = "29" + accInfo.length.toString().padStart(2, "0") + accInfo;
+  const amtStr = amount.toFixed(2);
+  const tag54 = "54" + amtStr.length.toString().padStart(2, "0") + amtStr;
+  const payload = "000201010212" + tag29 + "5802TH5303764" + tag54 + "6304";
   
   let crc = 0xFFFF;
-  for (let i = 0; i < payloadWithoutCrc.length; i++) {
-    crc ^= payloadWithoutCrc.charCodeAt(i) << 8;
+  for (let i = 0; i < payload.length; i++) {
+    crc ^= payload.charCodeAt(i) << 8;
     for (let j = 0; j < 8; j++) {
       if ((crc & 0x8000) !== 0) crc = (crc << 1) ^ 0x1021;
       else crc = crc << 1;
     }
   }
-  return payloadWithoutCrc + (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
+  return payload + (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
 }
 
 export default function CustomerStorefront() {
@@ -67,7 +81,7 @@ export default function CustomerStorefront() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
-  const [slipImage, setSlipImage] = useState<string | null>(null); // State สำหรับเก็บรูปสลิป
+  const [slipImage, setSlipImage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [createdDocNo, setCreatedDocNo] = useState("");
@@ -171,7 +185,6 @@ export default function CustomerStorefront() {
 
     try {
       const now = new Date();
-      // 🛠️ เปลี่ยนรหัสเอกสารนำหน้าเป็น OL
       const prefix = `OL${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-`;
 
       const { data: lastOrder } = await supabase
@@ -192,18 +205,24 @@ export default function CustomerStorefront() {
       const docNo = `${prefix}${runningNum.toString().padStart(4, '0')}`;
       setCreatedDocNo(docNo);
 
-      const { data: orderData, error: orderError } = await supabase.from("orders").insert([{
+      // ใช้ Interface แทนการใช้ any
+      const payload: OrderPayload = {
         store_id: storeSettings.id,
         doc_no: docNo,
-        order_source: "ONLINE", // ระบุแหล่งที่มาเป็นออนไลน์
+        order_source: "ONLINE",
         status: "pending", 
         total_amount: totalAmount,
         payment_method: "transfer",
         customer_name: customerName,
         customer_phone: customerPhone,
         delivery_address: deliveryAddress,
-        // ตัดเวลาจัดส่งออกตามความต้องการ
-      }]).select().single();
+      };
+
+      if (slipImage) {
+        payload.slip_image = slipImage; 
+      }
+
+      const { data: orderData, error: orderError } = await supabase.from("orders").insert([payload]).select().single();
 
       if (orderError) throw orderError;
 
@@ -247,7 +266,7 @@ export default function CustomerStorefront() {
         <h2 className="text-2xl font-black text-green-600 mb-2">สั่งซื้อสำเร็จ!</h2>
         <p className="text-gray-500 text-sm mb-2">เลขที่คำสั่งซื้อ: <span className="font-bold text-gray-800">{createdDocNo}</span></p>
         <p className="text-gray-600 mb-6">ทางร้านได้รับคำสั่งซื้อและสลิปของคุณเรียบร้อยแล้ว จะรีบดำเนินการจัดส่งให้ครับ</p>
-        <button onClick={() => { setOrderSuccess(false); setStep("form"); }} className="bg-blue-600 text-white font-bold py-3 px-8 rounded-full w-full hover:bg-blue-700 transition-all shadow-md">
+        <button onClick={() => { setOrderSuccess(false); setStep("form"); }} className="cursor-pointer bg-blue-600 text-white font-bold py-3 px-8 rounded-full w-full hover:bg-blue-700 transition-all shadow-md">
           กลับสู่หน้าร้าน
         </button>
       </div>
@@ -283,7 +302,7 @@ export default function CustomerStorefront() {
                 <h3 className="font-bold text-gray-800 text-sm line-clamp-2">{product.name}</h3>
                 <div className="mt-auto pt-2 flex justify-between items-end">
                   <span className="font-black text-blue-600 text-sm">{product.sell_price.toFixed(2)} ฿</span>
-                  <button onClick={() => addToCart(product)} className="bg-blue-600 text-white w-8 h-8 rounded-full font-bold flex items-center justify-center shadow-md hover:bg-blue-700 active:scale-95 transition-all">
+                  <button onClick={() => addToCart(product)} className="cursor-pointer bg-blue-600 text-white w-8 h-8 rounded-full font-bold flex items-center justify-center shadow-md hover:bg-blue-700 active:scale-95 transition-all">
                     +
                   </button>
                 </div>
@@ -300,7 +319,7 @@ export default function CustomerStorefront() {
               <p className="text-xs text-gray-400 font-bold">ตะกร้าสินค้า ({cart.length} รายการ)</p>
               <p className="text-2xl font-black text-blue-600">{totalAmount.toFixed(2)} ฿</p>
             </div>
-            <button onClick={() => { setShowCheckout(true); setStep("form"); }} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-all text-sm">
+            <button onClick={() => { setShowCheckout(true); setStep("form"); }} className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-all text-sm">
               ดูตะกร้าสินค้า →
             </button>
           </div>
@@ -311,7 +330,7 @@ export default function CustomerStorefront() {
         <div className="fixed inset-0 bg-gray-100 z-50 overflow-y-auto">
           <div className="max-w-3xl mx-auto bg-white min-h-screen flex flex-col shadow-2xl">
             <header className="p-4 border-b border-gray-100 flex items-center sticky top-0 bg-white z-10">
-              <button onClick={() => setShowCheckout(false)} className="text-2xl font-bold text-gray-600 mr-4">←</button>
+              <button onClick={() => setShowCheckout(false)} className="cursor-pointer text-2xl font-bold text-gray-600 mr-4">←</button>
               <h2 className="text-lg font-black text-gray-800">{step === "form" ? "ยืนยันคำสั่งซื้อและที่อยู่" : "สแกนและแนบสลิปชำระเงิน"}</h2>
             </header>
 
@@ -328,10 +347,10 @@ export default function CustomerStorefront() {
                             <p className="font-black text-blue-600 text-sm mt-1">{item.sell_price.toFixed(2)} ฿</p>
                           </div>
                           <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-2 py-1">
-                            <button onClick={() => updateQty(item.id, -1)} className="font-bold text-gray-500 w-6 h-6">-</button>
+                            <button onClick={() => updateQty(item.id, -1)} className="cursor-pointer font-bold text-gray-500 w-6 h-6">-</button>
                             <span className="font-black text-sm w-4 text-center">{item.cart_qty}</span>
-                            <button onClick={() => updateQty(item.id, 1)} className="font-bold text-blue-600 w-6 h-6">+</button>
-                            <button onClick={() => removeFromCart(item.id)} className="ml-2 text-red-500 font-bold text-xs pl-2 border-l">ลบ</button>
+                            <button onClick={() => updateQty(item.id, 1)} className="cursor-pointer font-bold text-blue-600 w-6 h-6">+</button>
+                            <button onClick={() => removeFromCart(item.id)} className="cursor-pointer ml-2 text-red-500 font-bold text-xs pl-2 border-l">ลบ</button>
                           </div>
                         </div>
                         <input
@@ -358,7 +377,7 @@ export default function CustomerStorefront() {
                     <div>
                       <div className="flex justify-between items-center mb-1">
                         <label className="text-xs font-bold text-gray-500">ที่อยู่จัดส่ง / พิกัด GPS</label>
-                        <button type="button" onClick={handleGetLocation} className="text-xs text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded-md hover:bg-blue-100 transition-all">
+                        <button type="button" onClick={handleGetLocation} className="cursor-pointer text-xs text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded-md hover:bg-blue-100 transition-all">
                           📍 แชร์พิกัดปัจจุบัน
                         </button>
                       </div>
@@ -379,13 +398,12 @@ export default function CustomerStorefront() {
                     <p className="text-red-500 text-xs mb-6 font-bold">ร้านค้านี้ยังไม่ได้ตั้งค่าเบอร์ PromptPay</p>
                   )}
 
-                  {/* 🛠️ ส่วนสำคัญ: บังคับแนบสลิปเพื่อยืนยันว่าจ่ายจริง */}
                   <div className="w-full max-w-xs bg-gray-50 border border-gray-200 p-4 rounded-xl mb-6">
                     <label className="block text-sm font-bold text-gray-700 mb-2">อัปโหลดสลิปโอนเงิน <span className="text-red-500">*</span></label>
-                    <input type="file" accept="image/*" onChange={handleSlipUpload} className="w-full text-xs" />
+                    <input type="file" accept="image/*" onChange={handleSlipUpload} className="cursor-pointer w-full text-xs" />
                     {slipImage && (
-                      <div className="mt-3 relative w-full h-32 border border-gray-300 rounded-lg overflow-hidden">
-                        <Image src={slipImage} alt="Slip" fill className="object-cover" />
+                      <div className="mt-3 relative w-full h-32 border border-gray-300 rounded-lg overflow-hidden bg-white">
+                        <Image src={slipImage} alt="Slip" fill className="object-contain" />
                       </div>
                     )}
                   </div>
@@ -404,15 +422,15 @@ export default function CustomerStorefront() {
                 <span className="text-2xl font-black text-blue-600">{totalAmount.toFixed(2)} ฿</span>
               </div>
               {step === "form" ? (
-                <button form="order-form" type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all text-base">
+                <button form="order-form" type="submit" className="cursor-pointer w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all text-base">
                   ไปหน้าชำระเงิน (QR Code) →
                 </button>
               ) : (
                 <div className="flex gap-3">
-                  <button onClick={() => setStep("form")} className="flex-1 bg-gray-100 text-gray-700 font-bold py-3.5 rounded-xl hover:bg-gray-200 transition-all">
+                  <button onClick={() => setStep("form")} className="cursor-pointer flex-1 bg-gray-100 text-gray-700 font-bold py-3.5 rounded-xl hover:bg-gray-200 transition-all">
                     ← กลับ
                   </button>
-                  <button onClick={handleFinalSubmitOrder} disabled={isSubmitting || !slipImage} className="flex-[2] bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all">
+                  <button onClick={handleFinalSubmitOrder} disabled={isSubmitting || !slipImage} className="cursor-pointer flex-[2] bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all">
                     {isSubmitting ? "กำลังส่งออเดอร์..." : "✅ ส่งออเดอร์ให้ร้าน"}
                   </button>
                 </div>
