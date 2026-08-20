@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../../lib/supabase";
 
@@ -33,6 +34,7 @@ function generatePromptPayPayload(mobileOrId: string, amount: number): string {
 }
 
 export default function CustomerStorefront() {
+  const router = useRouter(); // 🛠️ เพิ่ม Router สำหรับปุ่มกลับ Home
   const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -81,13 +83,13 @@ export default function CustomerStorefront() {
       const img = new window.Image();
       img.onload = () => {
         const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 600;
+        const MAX_WIDTH = 500;
         const scaleSize = MAX_WIDTH / img.width;
         canvas.width = MAX_WIDTH;
         canvas.height = img.height * scaleSize;
         const ctx = canvas.getContext("2d");
         ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
         setSlipImage(dataUrl);
       };
       img.src = event.target?.result as string;
@@ -139,12 +141,15 @@ export default function CustomerStorefront() {
       if (orderError) throw orderError;
 
       const orderItemsToInsert = cart.map((item) => ({ order_id: orderData.id, product_id: item.id, qty: item.cart_qty, unit_price: item.sell_price, remark: item.remark || "" }));
-      await supabase.from("order_items").insert(orderItemsToInsert);
+      const { error: itemsError } = await supabase.from("order_items").insert(orderItemsToInsert);
+      
+      if (itemsError) throw itemsError;
+
       for (const item of cart) await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
 
       setOrderSuccess(true); setCart([]); setShowCheckout(false); setSlipImage(null);
     } catch (error: unknown) { 
-      if (error instanceof Error) alert("บันทึกข้อมูลไม่สำเร็จ: " + error.message); 
+      if (error instanceof Error) alert(`ข้อผิดพลาดฐานข้อมูล: ${error.message}`);
       else alert("เกิดข้อผิดพลาด");
     } finally { setIsSubmitting(false); }
   };
@@ -165,9 +170,15 @@ export default function CustomerStorefront() {
   return (
     <div className="min-h-screen bg-gray-100 pb-32 font-sans">
       <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-3xl mx-auto p-4 flex items-center gap-4">
-          {storeSettings?.logo_url && <Image src={storeSettings.logo_url} alt="Logo" width={45} height={45} className="rounded-full object-cover border" />}
-          <div><h1 className="font-black text-lg text-gray-800">{storeSettings?.name || "ร้านค้าออนไลน์"}</h1><p className="text-xs text-gray-500">สั่งสะดวก ส่งตรงถึงหน้าบ้าน</p></div>
+        <div className="max-w-3xl mx-auto p-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            {storeSettings?.logo_url && <Image src={storeSettings.logo_url} alt="Logo" width={45} height={45} className="rounded-full object-cover border" />}
+            <div><h1 className="font-black text-lg text-gray-800">{storeSettings?.name || "ร้านค้าออนไลน์"}</h1><p className="text-xs text-gray-500">สั่งสะดวก ส่งตรงถึงหน้าบ้าน</p></div>
+          </div>
+          {/* 🛠️ เพิ่มปุ่มกลับหน้า Home สำหรับแอดมิน */}
+          <button onClick={() => router.push("/")} className="cursor-pointer text-xs font-bold text-gray-500 hover:text-blue-600 bg-gray-100 hover:bg-blue-50 px-3 py-2 rounded-lg transition-colors">
+            🏠 แอดมิน
+          </button>
         </div>
       </header>
       <main className="max-w-3xl mx-auto p-4">

@@ -46,7 +46,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-6 md:p-12 font-sans flex flex-col items-center">
-      <div className="w-full max-w-4xl space-y-8">
+      <div className="w-full max-w-5xl space-y-8">
         
         {/* Header */}
         <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
@@ -54,7 +54,7 @@ export default function Home() {
             <p className="text-sm font-bold text-blue-600 mb-1">ยินดีต้อนรับสู่ระบบ</p>
             <h1 className="text-3xl font-black text-gray-800">{storeName}</h1>
           </div>
-          <button onClick={handleLogout} className="px-5 py-2.5 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors">
+          <button onClick={handleLogout} className="cursor-pointer px-5 py-2.5 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors">
             ออกจากระบบ
           </button>
         </div>
@@ -72,25 +72,35 @@ export default function Home() {
         </div>
 
         {/* Main Menu Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <button onClick={() => router.push("/pos")} className="flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-300 transition-all text-left group">
-            <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-3xl mr-4 group-hover:scale-110 transition-transform">🛒</div>
-            <div><h2 className="text-xl font-black text-gray-800">ระบบขายหน้าร้าน (POS)</h2><p className="text-sm text-gray-500 mt-1">หน้าจอคิดเงินและออกใบเสร็จ</p></div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <button onClick={() => router.push("/pos")} className="cursor-pointer flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-300 transition-all text-left group">
+            <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">🛒</div>
+            <div><h2 className="text-lg font-black text-gray-800">ระบบขายหน้าร้าน</h2><p className="text-xs text-gray-500 mt-1">หน้าจอคิดเงินและออกใบเสร็จ</p></div>
           </button>
 
-          <button onClick={() => router.push("/dashboard")} className="flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:purple-blue-300 transition-all text-left group">
-            <div className="w-16 h-16 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center text-3xl mr-4 group-hover:scale-110 transition-transform">📊</div>
-            <div><h2 className="text-xl font-black text-gray-800">แดชบอร์ด & ยืนยันสลิป</h2><p className="text-sm text-gray-500 mt-1">ดูรายงานการขาย และตรวจสลิปโอนเงิน</p></div>
+          <button onClick={() => router.push("/dashboard")} className="cursor-pointer flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-purple-300 transition-all text-left group">
+            <div className="w-14 h-14 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">📊</div>
+            <div><h2 className="text-lg font-black text-gray-800">แดชบอร์ด & ยืนยันสลิป</h2><p className="text-xs text-gray-500 mt-1">ดูรายงานการขาย ตรวจสลิป</p></div>
           </button>
 
-          <button onClick={() => router.push("/products")} className="flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-yellow-300 transition-all text-left group">
-            <div className="w-16 h-16 bg-yellow-50 text-yellow-600 rounded-2xl flex items-center justify-center text-3xl mr-4 group-hover:scale-110 transition-transform">📦</div>
-            <div><h2 className="text-xl font-black text-gray-800">จัดการคลังสินค้า</h2><p className="text-sm text-gray-500 mt-1">เพิ่ม/ลบ และแก้ไขราคาสินค้า</p></div>
+          <button onClick={() => router.push("/products")} className="cursor-pointer flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-yellow-300 transition-all text-left group">
+            <div className="w-14 h-14 bg-yellow-50 text-yellow-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">📦</div>
+            <div><h2 className="text-lg font-black text-gray-800">จัดการคลังสินค้า</h2><p className="text-xs text-gray-500 mt-1">เพิ่ม/ลบ และแก้ไขราคาสินค้า</p></div>
           </button>
 
-          <button onClick={() => window.open("/store", "_blank")} className="flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-green-300 transition-all text-left group">
-            <div className="w-16 h-16 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center text-3xl mr-4 group-hover:scale-110 transition-transform">🌐</div>
-            <div><h2 className="text-xl font-black text-gray-800">ไปหน้าร้านค้าออนไลน์</h2><p className="text-sm text-gray-500 mt-1">สำหรับให้ลูกค้าสั่งซื้อและแนบสลิป</p></div>
+          <button onClick={() => router.push("/store")} className="cursor-pointer flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-green-300 transition-all text-left group">
+            <div className="w-14 h-14 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">🌐</div>
+            <div><h2 className="text-lg font-black text-gray-800">หน้าร้านออนไลน์</h2><p className="text-xs text-gray-500 mt-1">สำหรับให้ลูกค้าสั่งซื้อและแนบสลิป</p></div>
+          </button>
+
+          <button onClick={() => router.push("/settings")} className="cursor-pointer flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-gray-300 transition-all text-left group">
+            <div className="w-14 h-14 bg-gray-50 text-gray-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">⚙️</div>
+            <div><h2 className="text-lg font-black text-gray-800">ตั้งค่าระบบ (Settings)</h2><p className="text-xs text-gray-500 mt-1">ตั้งค่าพร้อมเพย์และหัวใบเสร็จ</p></div>
+          </button>
+
+          <button onClick={() => router.push("/setup-store")} className="cursor-pointer flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-teal-300 transition-all text-left group">
+            <div className="w-14 h-14 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">🏪</div>
+            <div><h2 className="text-lg font-black text-gray-800">ข้อมูลโปรไฟล์ร้าน</h2><p className="text-xs text-gray-500 mt-1">จัดการชื่อร้าน โลโก้ ที่อยู่</p></div>
           </button>
         </div>
 
