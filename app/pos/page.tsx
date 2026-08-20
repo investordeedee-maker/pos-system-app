@@ -664,4 +664,4 @@ export default function POSPage() {
       </div>
     </> 
   );
-}
+} 
