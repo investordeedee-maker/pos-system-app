@@ -14,12 +14,19 @@ interface PendingOrderItem { product_id: string; unit_price: number; qty: number
 interface PendingOrder { id: string; doc_no: string; created_at: string; total_amount: number; order_items: PendingOrderItem[]; }
 interface CustomWindow extends Window { webkitAudioContext?: typeof AudioContext; }
 
+// 🛠️ แก้ไขฟังก์ชันการสร้าง PromptPay ให้รองรับทั้งเบอร์โทรและบัตรประชาชนอย่างถูกต้อง
 function generatePromptPayPayload(mobileOrId: string, amount: number): string {
   const cleanId = mobileOrId.replace(/[^0-9]/g, "");
   let targetField = "";
-  if (cleanId.length === 10) targetField = "0066" + cleanId.substring(1).length.toString().padStart(2, "0") + "0066" + cleanId.substring(1);
-  else if (cleanId.length === 13) targetField = "0213" + cleanId;
-  else return "";
+  
+  if (cleanId.length === 10) {
+    // ใช้รหัส "01" สำหรับเบอร์มือถือ
+    const formattedMobile = "0066" + cleanId.substring(1);
+    targetField = "01" + formattedMobile.length.toString().padStart(2, "0") + formattedMobile;
+  } else if (cleanId.length === 13) {
+    // ใช้รหัส "02" สำหรับบัตรประชาชน
+    targetField = "0213" + cleanId;
+  } else return "";
 
   const merchantAccountInfo = "0016A000000677010111" + targetField;
   const tag29 = "29" + merchantAccountInfo.length.toString().padStart(2, "0") + merchantAccountInfo;
@@ -212,7 +219,6 @@ export default function POSPage() {
 
   return (
     <>
-      {/* 🖨️ CSS ระบบพิมพ์แบบ Thermal 58mm ตามต้นฉบับ[cite: 3, 5] */}
       <style dangerouslySetInnerHTML={{
         __html: `
         @media screen { .print-area { display: none; } }
@@ -315,7 +321,6 @@ export default function POSPage() {
               </button>
             </div>
           </div>
-
         </div>
       </div>
 
@@ -527,7 +532,7 @@ export default function POSPage() {
                 {receiptData.items.map((item, idx) => (
                   <div key={idx} className="flex flex-col">
                     <div className="flex justify-between items-start">
-                      <span className="font-bold text-gray-800">{item.cart_qty} x {item.name}</span>
+                      <span className="font-bold text-gray-800">{item.cart_qty} x {item.name} {item.is_vat_exempt && <span className="text-[10px] text-red-500">(V0)</span>}</span>
                       <span className="font-bold text-gray-800">฿{(item.price * item.cart_qty).toLocaleString()}</span>
                     </div>
                     {item.remark && <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded mt-1 self-start">- {item.remark}</span>}
@@ -557,7 +562,7 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* 🖨️ โครงสร้างการพิมพ์ที่จัดรูปแบบตามต้นฉบับอย่างสมบูรณ์[cite: 3, 5] */}
+      {/* 🖨️ โครงสร้างการพิมพ์ที่จัดรูปแบบตามต้นฉบับอย่างสมบูรณ์ */}
       <div className="print-area">
         {showCheckout && !receiptData && (
           <div>

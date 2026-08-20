@@ -27,19 +27,24 @@ interface StoreSettings {
   promptpay_number: string;
 }
 
+// 🛠️ แก้ไขฟังก์ชันการสร้าง PromptPay ให้ถูกต้องตามมาตรฐาน
 function generatePromptPayPayload(mobileOrId: string, amount: number): string {
   const cleanId = mobileOrId.replace(/[^0-9]/g, "");
   let targetField = "";
   if (cleanId.length === 10) {
     const formattedMobile = "0066" + cleanId.substring(1);
-    targetField = "0066" + formattedMobile.length.toString().padStart(2, "0") + formattedMobile;
+    // เปลี่ยนจาก "0066" เป็น "01" (รหัสสำหรับเบอร์มือถือ)
+    targetField = "01" + formattedMobile.length.toString().padStart(2, "0") + formattedMobile;
   } else if (cleanId.length === 13) {
+    // ใช้รหัส "02" สำหรับบัตรประชาชน
     targetField = "0213" + cleanId;
   } else return "";
+  
   const merchantAccountInfo = "0016A000000677010111" + targetField;
   const tag29 = "29" + merchantAccountInfo.length.toString().padStart(2, "0") + merchantAccountInfo;
   const asciiAmount = amount.toFixed(2);
   const payloadWithoutCrc = "000201" + "010211" + tag29 + "5802TH" + "5303764" + "54" + asciiAmount.length.toString().padStart(2, "0") + asciiAmount + "6304";
+  
   let crc = 0xFFFF;
   for (let i = 0; i < payloadWithoutCrc.length; i++) {
     crc ^= payloadWithoutCrc.charCodeAt(i) << 8;
@@ -48,8 +53,7 @@ function generatePromptPayPayload(mobileOrId: string, amount: number): string {
       else crc = crc << 1;
     }
   }
-  const hexCrc = (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
-  return payloadWithoutCrc + hexCrc;
+  return payloadWithoutCrc + (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
 }
 
 export default function CustomerStorefront() {
@@ -63,7 +67,7 @@ export default function CustomerStorefront() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
-  const [deliveryTime, setDeliveryTime] = useState("");
+  const [slipImage, setSlipImage] = useState<string | null>(null); // State สำหรับเก็บรูปสลิป
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [createdDocNo, setCreatedDocNo] = useState("");
@@ -109,6 +113,16 @@ export default function CustomerStorefront() {
         alert("กรุณาอนุญาตการเข้าถึงตำแหน่ง หรือพิมพ์ที่อยู่ด้วยตนเอง");
       }
     );
+  };
+
+  const handleSlipUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setSlipImage(event.target?.result as string);
+    };
+    reader.readAsDataURL(file);
   };
 
   const addToCart = (product: Product) => {
@@ -157,7 +171,8 @@ export default function CustomerStorefront() {
 
     try {
       const now = new Date();
-      const prefix = `ON${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-`;
+      // 🛠️ เปลี่ยนรหัสเอกสารนำหน้าเป็น OL
+      const prefix = `OL${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-`;
 
       const { data: lastOrder } = await supabase
         .from("orders")
@@ -180,14 +195,14 @@ export default function CustomerStorefront() {
       const { data: orderData, error: orderError } = await supabase.from("orders").insert([{
         store_id: storeSettings.id,
         doc_no: docNo,
-        order_source: "POS",
+        order_source: "ONLINE", // ระบุแหล่งที่มาเป็นออนไลน์
         status: "pending", 
         total_amount: totalAmount,
         payment_method: "transfer",
         customer_name: customerName,
         customer_phone: customerPhone,
         delivery_address: deliveryAddress,
-        delivery_time: deliveryTime
+        // ตัดเวลาจัดส่งออกตามความต้องการ
       }]).select().single();
 
       if (orderError) throw orderError;
@@ -209,6 +224,7 @@ export default function CustomerStorefront() {
       setOrderSuccess(true);
       setCart([]);
       setShowCheckout(false);
+      setSlipImage(null);
 
     } catch (error: unknown) {
       console.error("Supabase Error:", error);
@@ -230,7 +246,7 @@ export default function CustomerStorefront() {
         <span className="text-6xl mb-4 block">🎉</span>
         <h2 className="text-2xl font-black text-green-600 mb-2">สั่งซื้อสำเร็จ!</h2>
         <p className="text-gray-500 text-sm mb-2">เลขที่คำสั่งซื้อ: <span className="font-bold text-gray-800">{createdDocNo}</span></p>
-        <p className="text-gray-600 mb-6">ทางร้านได้รับคำสั่งซื้อของคุณแล้ว จะรีบจัดส่งตามเวลาที่กำหนดครับ</p>
+        <p className="text-gray-600 mb-6">ทางร้านได้รับคำสั่งซื้อและสลิปของคุณเรียบร้อยแล้ว จะรีบดำเนินการจัดส่งให้ครับ</p>
         <button onClick={() => { setOrderSuccess(false); setStep("form"); }} className="bg-blue-600 text-white font-bold py-3 px-8 rounded-full w-full hover:bg-blue-700 transition-all shadow-md">
           กลับสู่หน้าร้าน
         </button>
@@ -296,7 +312,7 @@ export default function CustomerStorefront() {
           <div className="max-w-3xl mx-auto bg-white min-h-screen flex flex-col shadow-2xl">
             <header className="p-4 border-b border-gray-100 flex items-center sticky top-0 bg-white z-10">
               <button onClick={() => setShowCheckout(false)} className="text-2xl font-bold text-gray-600 mr-4">←</button>
-              <h2 className="text-lg font-black text-gray-800">{step === "form" ? "ยืนยันคำสั่งซื้อและที่อยู่" : "สแกน QR Code ชำระเงิน"}</h2>
+              <h2 className="text-lg font-black text-gray-800">{step === "form" ? "ยืนยันคำสั่งซื้อและที่อยู่" : "สแกนและแนบสลิปชำระเงิน"}</h2>
             </header>
 
             <div className="flex-1 p-4 pb-32">
@@ -348,16 +364,12 @@ export default function CustomerStorefront() {
                       </div>
                       <textarea required value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} className="w-full p-3 border border-gray-200 rounded-xl bg-gray-50 outline-none focus:bg-white focus:border-blue-400 text-sm" rows={3} placeholder="บ้านเลขที่ ซอย ถนน หรือกดปุ่มแชร์พิกัด GPS ด้านบน" />
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 mb-1">เวลาที่ต้องการให้ถึง (โดยประมาณ)</label>
-                      <input required type="time" value={deliveryTime} onChange={e => setDeliveryTime(e.target.value)} className="w-full p-3 border border-gray-200 rounded-xl bg-gray-50 outline-none focus:bg-white focus:border-blue-400 text-sm" />
-                    </div>
                   </form>
                 </>
               ) : (
                 <div className="flex flex-col items-center justify-center text-center py-4">
-                  <h3 className="font-bold text-gray-800 mb-1">สแกนเพื่อชำระเงินผ่านแอปธนาคาร</h3>
-                  <p className="text-xs text-gray-500 mb-6">ยอดชำระสุทธิ: <span className="font-black text-blue-600 text-lg">{totalAmount.toFixed(2)} ฿</span></p>
+                  <h3 className="font-bold text-gray-800 mb-1">สแกนเพื่อชำระเงิน</h3>
+                  <p className="text-xs text-gray-500 mb-4">ยอดชำระสุทธิ: <span className="font-black text-blue-600 text-lg">{totalAmount.toFixed(2)} ฿</span></p>
                   
                   {storeSettings?.promptpay_number ? (
                     <div className="bg-white p-4 rounded-2xl shadow-md border border-gray-200 mb-6">
@@ -367,9 +379,20 @@ export default function CustomerStorefront() {
                     <p className="text-red-500 text-xs mb-6 font-bold">ร้านค้านี้ยังไม่ได้ตั้งค่าเบอร์ PromptPay</p>
                   )}
 
+                  {/* 🛠️ ส่วนสำคัญ: บังคับแนบสลิปเพื่อยืนยันว่าจ่ายจริง */}
+                  <div className="w-full max-w-xs bg-gray-50 border border-gray-200 p-4 rounded-xl mb-6">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">อัปโหลดสลิปโอนเงิน <span className="text-red-500">*</span></label>
+                    <input type="file" accept="image/*" onChange={handleSlipUpload} className="w-full text-xs" />
+                    {slipImage && (
+                      <div className="mt-3 relative w-full h-32 border border-gray-300 rounded-lg overflow-hidden">
+                        <Image src={slipImage} alt="Slip" fill className="object-cover" />
+                      </div>
+                    )}
+                  </div>
+
                   <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl text-xs text-orange-800 mb-6 max-w-xs text-left">
                     <p className="font-bold mb-1">📌 คำแนะนำ:</p>
-                    <p>กรุณาโอนเงินตามยอดที่กำหนด และกดปุ่มยืนยันด้านล่างเพื่อให้ร้านค้าจัดส่งสินค้าครับ</p>
+                    <p>กรุณาโอนเงินและ <b>แนบหลักฐานสลิป</b> ด้านบน เพื่อให้ปุ่มยืนยันทำงานครับ</p>
                   </div>
                 </div>
               )}
@@ -387,10 +410,10 @@ export default function CustomerStorefront() {
               ) : (
                 <div className="flex gap-3">
                   <button onClick={() => setStep("form")} className="flex-1 bg-gray-100 text-gray-700 font-bold py-3.5 rounded-xl hover:bg-gray-200 transition-all">
-                    ← กลับไปแก้ที่อยู่
+                    ← กลับ
                   </button>
-                  <button onClick={handleFinalSubmitOrder} disabled={isSubmitting} className="flex-[2] bg-green-600 hover:bg-green-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all">
-                    {isSubmitting ? "กำลังบันทึกออเดอร์..." : "✅ ยืนยันการโอนเงิน / สั่งซื้อ"}
+                  <button onClick={handleFinalSubmitOrder} disabled={isSubmitting || !slipImage} className="flex-[2] bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all">
+                    {isSubmitting ? "กำลังส่งออเดอร์..." : "✅ ส่งออเดอร์ให้ร้าน"}
                   </button>
                 </div>
               )}
