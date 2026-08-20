@@ -9,9 +9,10 @@ import { supabase } from "../../lib/supabase";
 interface Product { id: string; name: string; price: number; sell_price: number; stock_qty: number; is_vat_exempt: boolean; image_url: string; }
 interface CartItem extends Product { cart_qty: number; remark?: string; }
 interface StoreSettings { id: string; name: string; address: string; logo_url: string; promptpay_number: string; phone_number: string; receipt_title: string; invoice_title: string; tax_id: string; receipt_footer: string; }
-interface ReceiptData { docNo: string; items: CartItem[]; totalAmount: number; totalExempt: number; totalVatable: number; vatAmount: number; paymentMethod: string; cashReceived: number | ""; changeAmount: number; date: Date; }
+interface Customer { id: string; tax_id: string; name: string; branch: string; address: string; }
+interface ReceiptData { docNo: string; docType: "ABB" | "FULL"; customer?: Customer | null; items: CartItem[]; totalAmount: number; totalExempt: number; totalVatable: number; vatAmount: number; paymentMethod: string; cashReceived: number | ""; changeAmount: number; date: Date; }
 interface PendingOrderItem { product_id: string; unit_price: number; qty: number; remark?: string; products?: { name: string; is_vat_exempt: boolean; }; }
-interface PendingOrder { id: string; doc_no: string; created_at: string; total_amount: number; order_items: PendingOrderItem[]; slip_image?: string; }
+interface PendingOrder { id: string; doc_no: string; created_at: string; total_amount: number; order_items: PendingOrderItem[]; slip_image?: string; customer_id?: string; customers?: Customer; doc_type?: string; }
 interface CustomWindow extends Window { webkitAudioContext?: typeof AudioContext; }
 
 function generatePromptPayPayload(mobileOrId: string, amount: number): string {
@@ -67,15 +68,22 @@ export default function POSPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   
   const [searchQuery, setSearchQuery] = useState("");
-  // 🛠️ เปลี่ยนจาก useState เป็น useRef เพื่อไม่ให้ผิดกฎ React Hooks
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const syncChannelRef = useRef<any>(null);
+  const [isSyncReady, setIsSyncReady] = useState(false);
   
   const [showCheckout, setShowCheckout] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer">("cash");
   const [cashReceived, setCashReceived] = useState<string>(""); 
   const [isProcessing, setIsProcessing] = useState(false);
   
+  // 🏢 State สำหรับระบบลูกค้าและใบกำกับภาษี
+  const [docType, setDocType] = useState<"ABB" | "FULL">("ABB");
+  const [searchTaxId, setSearchTaxId] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
+  const [newCustomerData, setNewCustomerData] = useState({ name: "", address: "", branch: "สำนักงานใหญ่", phone: "" });
+
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [savedPendingReceipt, setSavedPendingReceipt] = useState<ReceiptData | null>(null); 
   const [showPendingModal, setShowPendingModal] = useState(false);
@@ -102,29 +110,34 @@ export default function POSPage() {
     return () => { isMounted = false; };
   }, [router]);
 
-  // 📡 1. เปิดช่องสัญญาณเชื่อมต่อกับจอฝั่งลูกค้า
   useEffect(() => {
     const channel = supabase.channel('pos_sync_channel');
-    channel.subscribe();
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        setIsSyncReady(true);
+      }
+    });
     syncChannelRef.current = channel;
+    
     return () => { 
       supabase.removeChannel(channel); 
       syncChannelRef.current = null;
+      setIsSyncReady(false);
     };
   }, []);
 
   const totalAmount = cart.reduce((sum, item) => sum + item.price * item.cart_qty, 0);
 
-  // 📡 2. ส่งข้อมูลไปที่จอฝั่งลูกค้าอัตโนมัติ ทุกครั้งที่มีการเปลี่ยนแปลง
   useEffect(() => {
-    if (syncChannelRef.current) {
+    if (syncChannelRef.current && isSyncReady) {
+      const safeCart = cart.map(c => ({ id: c.id, name: c.name, price: c.price, cart_qty: c.cart_qty, remark: c.remark }));
       syncChannelRef.current.send({
         type: 'broadcast',
         event: 'cart_update',
-        payload: { cart, totalAmount, paymentMethod, showCheckout }
-      });
+        payload: { cart: safeCart, totalAmount, paymentMethod, showCheckout }
+      }).catch(console.error);
     }
-  }, [cart, totalAmount, paymentMethod, showCheckout]);
+  }, [cart, totalAmount, paymentMethod, showCheckout, isSyncReady]);
 
   const addToCart = (product: Product) => {
     playBeep();
@@ -158,39 +171,88 @@ export default function POSPage() {
 
   const openCheckout = () => {
     playBeep();
-    setPaymentMethod("cash"); setCashReceived(""); setShowCheckout(true);
+    setPaymentMethod("cash"); setCashReceived(""); 
+    setDocType("ABB"); setSelectedCustomer(null); setSearchTaxId(""); setShowNewCustomerForm(false);
+    setShowCheckout(true);
     const now = new Date();
     setTempInvoiceNo(`IV${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-TEMP`);
+  };
+
+  const handleSearchCustomer = async () => {
+    if (searchTaxId.length < 10) { alert("กรุณากรอกเลขประจำตัวผู้เสียภาษีให้ถูกต้อง"); return; }
+    playBeep();
+    try {
+      const { data } = await supabase.from("customers").select("*").eq("tax_id", searchTaxId).eq("store_id", storeSettings?.id).single();
+      if (data) {
+        setSelectedCustomer(data);
+        setShowNewCustomerForm(false);
+      } else {
+        setSelectedCustomer(null);
+        setShowNewCustomerForm(true);
+      }
+    } catch {
+      setSelectedCustomer(null);
+      setShowNewCustomerForm(true);
+    }
+  };
+
+  const handleSaveCustomer = async () => {
+    if (!newCustomerData.name || !newCustomerData.address) { alert("กรุณากรอกชื่อและที่อยู่ให้ครบถ้วน"); return; }
+    playBeep();
+    try {
+      const { data, error } = await supabase.from("customers").insert([{
+        store_id: storeSettings?.id,
+        tax_id: searchTaxId,
+        ...newCustomerData
+      }]).select().single();
+      if (error) throw error;
+      if (data) {
+        setSelectedCustomer(data);
+        setShowNewCustomerForm(false);
+        alert("บันทึกข้อมูลลูกค้าใหม่เรียบร้อยแล้ว");
+      }
+    } catch (e) { alert("ไม่สามารถบันทึกข้อมูลลูกค้าได้ (เลขประจำตัวอาจซ้ำ)"); console.error(e); }
   };
 
   const loadPendingOrders = async () => {
     playBeep();
     if (!storeSettings?.id) return;
     try {
-      const { data } = await supabase.from("orders").select(`*, order_items(*, products(*))`).eq("store_id", storeSettings.id).eq("status", "pending").order("created_at", { ascending: false });
+      const { data } = await supabase.from("orders").select(`*, order_items(*, products(*)), customers(*)`).eq("store_id", storeSettings.id).eq("status", "pending").order("created_at", { ascending: false });
       setPendingOrders(data || []); setShowPendingModal(true);
     } catch { }
+  };
+
+  const generateDocNo = async (type: "ABB" | "FULL") => {
+    const now = new Date();
+    const prefix = `${type === "FULL" ? "INV" : "ABB"}${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-`;
+    const { data: lastOrder } = await supabase.from("orders").select("doc_no").eq("store_id", storeSettings?.id).like("doc_no", `${prefix}%`).order("doc_no", { ascending: false }).limit(1);
+    let runningNum = 1;
+    if (lastOrder && lastOrder.length > 0 && lastOrder[0].doc_no) runningNum = parseInt(lastOrder[0].doc_no.split("-")[1], 10) + 1;
+    return `${prefix}${runningNum.toString().padStart(4, '0')}`;
   };
 
   const handleSavePendingOrder = async () => {
     playBeep();
     if (!storeSettings?.id || cart.length === 0) return;
+    if (docType === "FULL" && !selectedCustomer) { alert("กรุณาเลือกลูกค้าสำหรับใบกำกับภาษีเต็มรูป"); return; }
     setIsProcessing(true);
     try {
+      const docNo = await generateDocNo(docType);
       const now = new Date();
-      const prefix = `IV${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-`;
-      const { data: lastOrder } = await supabase.from("orders").select("doc_no").eq("store_id", storeSettings.id).like("doc_no", `${prefix}%`).order("doc_no", { ascending: false }).limit(1);
-      let runningNum = 1;
-      if (lastOrder && lastOrder.length > 0 && lastOrder[0].doc_no) runningNum = parseInt(lastOrder[0].doc_no.split("-")[1], 10) + 1;
-      const docNo = `${prefix}${runningNum.toString().padStart(4, '0')}`;
 
-      const { data: orderData } = await supabase.from("orders").insert([{ store_id: storeSettings.id, doc_no: docNo, order_source: "POS", status: "pending", total_amount: totalAmount, payment_method: "cash", kitchen_status: "pending" }]).select().single();
+      const { data: orderData } = await supabase.from("orders").insert([{ 
+        store_id: storeSettings.id, doc_no: docNo, order_source: "POS", status: "pending", 
+        total_amount: totalAmount, payment_method: "cash", kitchen_status: "pending",
+        doc_type: docType, customer_id: selectedCustomer?.id || null 
+      }]).select().single();
+
       const orderItemsToInsert = cart.map((item) => ({ order_id: orderData.id, product_id: item.id, qty: item.cart_qty, unit_price: item.price, remark: item.remark || "" }));
       await supabase.from("order_items").insert(orderItemsToInsert);
       for (const item of cart) await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
       
       setProducts(prev => prev.map(p => { const sold = cart.find(c => c.id === p.id); return sold ? { ...p, stock_qty: p.stock_qty - sold.cart_qty } : p; }));
-      setSavedPendingReceipt({ docNo, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod: 'pending', cashReceived: "", changeAmount: 0, date: now });
+      setSavedPendingReceipt({ docNo, docType, customer: selectedCustomer, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod: 'pending', cashReceived: "", changeAmount: 0, date: now });
       playSuccessBeep(); setCart([]); setShowCheckout(false);
     } catch { } finally { setIsProcessing(false); }
   };
@@ -198,23 +260,26 @@ export default function POSPage() {
   const handleConfirmPayment = async () => {
     playBeep();
     if (!storeSettings?.id || cart.length === 0) return;
-    if (paymentMethod === "cash" && (cashReceived === "" || parsedCash < totalAmount)) { alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วนก่อนกดยืนยันชำระเงิน"); return; }
+    if (paymentMethod === "cash" && (cashReceived === "" || parsedCash < totalAmount)) { alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วน"); return; }
+    if (docType === "FULL" && !selectedCustomer) { alert("กรุณาเลือกลูกค้าสำหรับใบกำกับภาษีเต็มรูป"); return; }
+    
     setIsProcessing(true);
     try {
+      const docNo = await generateDocNo(docType);
       const now = new Date();
-      const prefix = `IV${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-`;
-      const { data: lastOrder } = await supabase.from("orders").select("doc_no").eq("store_id", storeSettings.id).like("doc_no", `${prefix}%`).order("doc_no", { ascending: false }).limit(1);
-      let runningNum = 1;
-      if (lastOrder && lastOrder.length > 0 && lastOrder[0].doc_no) runningNum = parseInt(lastOrder[0].doc_no.split("-")[1], 10) + 1;
-      const docNo = `${prefix}${runningNum.toString().padStart(4, '0')}`;
 
-      const { data: orderData } = await supabase.from("orders").insert([{ store_id: storeSettings.id, doc_no: docNo, order_source: "POS", status: "completed", total_amount: totalAmount, payment_method: paymentMethod, kitchen_status: "pending" }]).select().single();
+      const { data: orderData } = await supabase.from("orders").insert([{ 
+        store_id: storeSettings.id, doc_no: docNo, order_source: "POS", status: "completed", 
+        total_amount: totalAmount, payment_method: paymentMethod, kitchen_status: "pending",
+        doc_type: docType, customer_id: selectedCustomer?.id || null 
+      }]).select().single();
+
       const orderItemsToInsert = cart.map((item) => ({ order_id: orderData.id, product_id: item.id, qty: item.cart_qty, unit_price: item.price, remark: item.remark || "" }));
       await supabase.from("order_items").insert(orderItemsToInsert);
       for (const item of cart) await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
       
       setProducts(prev => prev.map(p => { const sold = cart.find(c => c.id === p.id); return sold ? { ...p, stock_qty: p.stock_qty - sold.cart_qty } : p; }));
-      setReceiptData({ docNo, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod, cashReceived: parsedCash, changeAmount, date: now });
+      setReceiptData({ docNo, docType, customer: selectedCustomer, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod, cashReceived: parsedCash, changeAmount, date: now });
       playSuccessBeep(); setCart([]); setShowCheckout(false); setCashReceived("");
     } catch { } finally { setIsProcessing(false); }
   };
@@ -223,7 +288,7 @@ export default function POSPage() {
     playBeep();
     if (!selectedPendingOrder) return;
     const orderTotal = selectedPendingOrder.total_amount;
-    if (paymentMethod === "cash" && (cashReceived === "" || parsedCash < orderTotal)) { alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วนก่อนกดยืนยันชำระเงิน"); return; }
+    if (paymentMethod === "cash" && (cashReceived === "" || parsedCash < orderTotal)) { alert("กรุณาระบุจำนวนเงินรับให้ครบถ้วน"); return; }
     setIsProcessing(true);
     try {
       await supabase.from("orders").update({ status: "completed", payment_method: paymentMethod }).eq("id", selectedPendingOrder.id);
@@ -234,7 +299,7 @@ export default function POSPage() {
       const vAmount = gVatable - tVatable;
       const cAmount = paymentMethod === "cash" && cashReceived !== "" ? parsedCash - orderTotal : 0;
 
-      setReceiptData({ docNo: selectedPendingOrder.doc_no, items: mappedItems, totalAmount: orderTotal, totalExempt: tExempt, totalVatable: tVatable, vatAmount: vAmount, paymentMethod, cashReceived: parsedCash, changeAmount: cAmount, date: new Date() });
+      setReceiptData({ docNo: selectedPendingOrder.doc_no, docType: (selectedPendingOrder.doc_type as "ABB" | "FULL") || "ABB", customer: selectedPendingOrder.customers, items: mappedItems, totalAmount: orderTotal, totalExempt: tExempt, totalVatable: tVatable, vatAmount: vAmount, paymentMethod, cashReceived: parsedCash, changeAmount: cAmount, date: new Date() });
       playSuccessBeep(); setSelectedPendingOrder(null); setShowPendingModal(false); setCashReceived("");
     } catch { } finally { setIsProcessing(false); }
   };
@@ -348,6 +413,7 @@ export default function POSPage() {
         </div>
       </div>
 
+      {/* Checkout Modal */}
       {showCheckout && storeSettings && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4 no-print">
           <div className="bg-white rounded-2xl md:rounded-3xl shadow-2xl w-full max-w-4xl max-h-[95dvh] flex flex-col overflow-hidden">
@@ -359,6 +425,44 @@ export default function POSPage() {
 
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
               <div className="w-full md:w-1/2 bg-gray-50 p-4 flex flex-col border-b md:border-b-0 md:border-r border-gray-200 overflow-y-auto">
+                
+                {/* 🏢 เลือกประเภทบิลและลูกค้า */}
+                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-4 shrink-0">
+                  <label className="block text-sm font-bold text-gray-700 mb-2">ประเภทเอกสาร (บิล)</label>
+                  <div className="flex gap-2 mb-3">
+                    <button onClick={() => setDocType("ABB")} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all border ${docType === "ABB" ? "bg-blue-600 text-white border-blue-600" : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"}`}>ใบกำกับภาษีอย่างย่อ (ABB)</button>
+                    <button onClick={() => setDocType("FULL")} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all border ${docType === "FULL" ? "bg-blue-600 text-white border-blue-600" : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"}`}>ใบกำกับภาษีเต็มรูป (FULL)</button>
+                  </div>
+
+                  {docType === "FULL" && (
+                    <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg animate-fade-in">
+                      <label className="block text-xs font-bold text-blue-800 mb-1">เลขประจำตัวผู้เสียภาษี 13 หลัก</label>
+                      <div className="flex gap-2">
+                        <input type="text" maxLength={13} placeholder="เช่น 01055xxxxxxxx" value={searchTaxId} onChange={(e) => setSearchTaxId(e.target.value.replace(/[^0-9]/g, ''))} className="flex-1 p-2 text-sm border border-gray-300 rounded outline-none focus:border-blue-400" />
+                        <button onClick={handleSearchCustomer} className="bg-blue-600 hover:bg-blue-700 text-white px-3 rounded font-bold text-sm transition-colors">ค้นหา</button>
+                      </div>
+
+                      {selectedCustomer && (
+                        <div className="mt-3 p-2 bg-green-100 border border-green-200 rounded text-green-800 text-xs">
+                          <p className="font-bold text-sm">✅ {selectedCustomer.name}</p>
+                          <p>สาขา: {selectedCustomer.branch}</p>
+                          <p className="line-clamp-1">{selectedCustomer.address}</p>
+                        </div>
+                      )}
+
+                      {showNewCustomerForm && !selectedCustomer && (
+                        <div className="mt-3 space-y-2 border-t border-blue-200 pt-3">
+                          <p className="text-xs font-bold text-orange-600">⚠️ ไม่พบข้อมูล กรุณาเพิ่มลูกค้าใหม่</p>
+                          <input type="text" placeholder="ชื่อบริษัท / ชื่อ-นามสกุล" value={newCustomerData.name} onChange={(e) => setNewCustomerData({...newCustomerData, name: e.target.value})} className="w-full p-2 text-xs border border-gray-300 rounded outline-none" />
+                          <input type="text" placeholder="สาขา (เช่น สำนักงานใหญ่ หรือ 00001)" value={newCustomerData.branch} onChange={(e) => setNewCustomerData({...newCustomerData, branch: e.target.value})} className="w-full p-2 text-xs border border-gray-300 rounded outline-none" />
+                          <input type="text" placeholder="ที่อยู่แบบเต็ม" value={newCustomerData.address} onChange={(e) => setNewCustomerData({...newCustomerData, address: e.target.value})} className="w-full p-2 text-xs border border-gray-300 rounded outline-none" />
+                          <button onClick={handleSaveCustomer} className="w-full bg-green-600 text-white p-2 rounded font-bold text-xs">💾 บันทึกลูกค้าใหม่</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <div className="space-y-2 mb-4">
                   {cart.map((item, idx) => (
                     <div key={idx} className="flex flex-col text-sm text-gray-700 bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
@@ -419,6 +523,7 @@ export default function POSPage() {
         </div>
       )}
 
+      {/* Pending Orders Modal */}
       {showPendingModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4 no-print">
           <div className="bg-white rounded-2xl md:rounded-3xl shadow-2xl w-full max-w-4xl max-h-[95dvh] flex flex-col overflow-hidden">
@@ -436,7 +541,7 @@ export default function POSPage() {
                       {pendingOrders.map(order => (
                         <div key={order.id} className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-2">
                           <div>
-                            <p className="font-bold text-gray-800 text-sm">{order.doc_no}</p>
+                            <p className="font-bold text-gray-800 text-sm">{order.doc_no} {order.doc_type === 'FULL' && <span className="text-[9px] bg-blue-100 text-blue-700 px-1 py-0.5 rounded ml-1">FULL</span>}</p>
                             <p className="text-[10px] text-gray-500">{new Date(order.created_at).toLocaleString('th-TH')}</p>
                           </div>
                           <div className="flex items-center gap-2 w-full sm:w-auto justify-between">
@@ -515,6 +620,7 @@ export default function POSPage() {
         </div>
       )}
 
+      {/* บันทึกบิลค้าง Modal */}
       {savedPendingReceipt && storeSettings && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
@@ -547,6 +653,7 @@ export default function POSPage() {
         </div>
       )}
 
+      {/* Success Modal */}
       {receiptData && storeSettings && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
@@ -558,6 +665,12 @@ export default function POSPage() {
               <div className="text-center mb-4">
                 <h1 className="font-black text-xl text-gray-800">{storeSettings.name}</h1>
                 <p className="text-gray-500 text-xs mt-1">บิลเลขที่: <span className="font-bold">{receiptData.docNo}</span></p>
+                {receiptData.docType === "FULL" && receiptData.customer && (
+                  <div className="mt-2 text-left bg-gray-50 p-2 rounded text-[10px] border border-gray-200">
+                    <p className="font-bold text-gray-700">{receiptData.customer.name}</p>
+                    <p className="text-gray-500">เลขผู้เสียภาษี: {receiptData.customer.tax_id} ({receiptData.customer.branch})</p>
+                  </div>
+                )}
               </div>
               <div className="space-y-2 mb-4 border-b border-dashed border-gray-300 pb-4 text-sm">
                 {receiptData.items.map((item, idx) => (
@@ -566,23 +679,11 @@ export default function POSPage() {
                       <span className="font-bold text-gray-800">{item.cart_qty} x {item.name} {item.is_vat_exempt && <span className="text-[10px] text-red-500">(V0)</span>}</span>
                       <span className="font-bold text-gray-800">฿{(item.price * item.cart_qty).toLocaleString()}</span>
                     </div>
-                    {item.remark && <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded mt-1 self-start">- {item.remark}</span>}
                   </div>
                 ))}
               </div>
               <div className="flex justify-between font-black text-lg text-blue-600 bg-blue-50 p-3 rounded-xl mb-4 shrink-0">
                 <span>ยอดสุทธิ</span><span>฿{receiptData.totalAmount.toLocaleString()}</span>
-              </div>
-              <div className="space-y-2 text-sm text-gray-700 shrink-0">
-                <div className="flex justify-between">
-                  <span>รับเงิน ({receiptData.paymentMethod === 'cash' ? 'สด' : 'โอน'})</span>
-                  <span className="font-bold">฿{receiptData.paymentMethod === 'cash' ? Number(receiptData.cashReceived).toLocaleString() : receiptData.totalAmount.toLocaleString()}</span>
-                </div>
-                {receiptData.changeAmount > 0 && (
-                  <div className="flex justify-between font-bold text-green-600 text-base">
-                    <span>เงินทอน</span><span>฿{receiptData.changeAmount.toLocaleString()}</span>
-                  </div>
-                )}
               </div>
             </div>
             <div className="p-4 bg-gray-50 border-t flex gap-3 shrink-0">
@@ -593,7 +694,9 @@ export default function POSPage() {
         </div>
       )}
 
+      {/* 🖨️ โซนสำหรับเครื่องพิมพ์ใบเสร็จ */}
       <div className="print-area">
+        {/* สำหรับพิมพ์แจ้งหนี้ชั่วคราว (Draft) */}
         {showCheckout && !receiptData && (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '6px' }}>
@@ -636,6 +739,7 @@ export default function POSPage() {
           </div>
         )}
 
+        {/* สำหรับพิมพ์ใบเสร็จและใบกำกับภาษี (Receipt) */}
         {receiptData && storeSettings && (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '6px' }}>
@@ -644,12 +748,25 @@ export default function POSPage() {
               <p style={{ margin: '2px 0', fontSize: '9px' }}>{storeSettings.address}</p>
               <p style={{ margin: '2px 0', fontSize: '9px' }}>โทร: {storeSettings.phone_number}</p>
               <p style={{ margin: '2px 0', fontSize: '9px' }}>TAX ID: {storeSettings.tax_id}</p>
-              <p style={{ fontSize: '11px', fontWeight: 'bold', margin: '4px 0', borderBottom: '1px dashed #000', paddingBottom: '2px' }}>{storeSettings.receipt_title || "ใบเสร็จรับเงิน"}</p>
+              
+              <p style={{ fontSize: '11px', fontWeight: 'bold', margin: '4px 0', borderBottom: receiptData.docType === 'ABB' ? '1px dashed #000' : 'none', paddingBottom: '2px' }}>
+                {receiptData.docType === "FULL" ? "ใบกำกับภาษี/ใบเสร็จรับเงิน" : (storeSettings.receipt_title || "ใบเสร็จรับเงิน/ใบกำกับภาษีอย่างย่อ")}
+              </p>
             </div>
+
+            {receiptData.docType === "FULL" && receiptData.customer && (
+              <div style={{ fontSize: '9px', marginBottom: '4px', paddingBottom: '4px', borderBottom: '1px dashed #000' }}>
+                <div style={{ fontWeight: 'bold' }}>นามลูกค้า: {receiptData.customer.name}</div>
+                <div>เลขประจำตัวผู้เสียภาษี: {receiptData.customer.tax_id} ({receiptData.customer.branch})</div>
+                <div>ที่อยู่: {receiptData.customer.address}</div>
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '9px' }}>
               <span>เลขที่: {receiptData.docNo}</span>
               <span>วันที่: {receiptData.date.toLocaleString('th-TH')}</span>
             </div>
+            
             <div style={{ borderBottom: '1px dashed #000', paddingBottom: '4px', marginBottom: '4px' }}>
               {receiptData.items.map((item, idx) => (
                 <div key={idx} style={{ marginBottom: '3px' }}>
@@ -657,11 +774,11 @@ export default function POSPage() {
                     <span>{item.name} {item.is_vat_exempt && "(V0)"}</span>
                     <span>{(item.price * item.cart_qty).toFixed(2)}</span>
                   </div>
-                  {item.remark && <div style={{ fontSize: '8px', color: '#333' }}>- {item.remark}</div>}
                   <div style={{ fontSize: '8px' }}>{item.cart_qty} x {item.price.toFixed(2)}</div>
                 </div>
               ))}
             </div>
+
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>มูลค่ายกเว้นภาษี (VAT 0%)</span><span>{receiptData.totalExempt.toFixed(2)}</span>
             </div>
@@ -674,6 +791,7 @@ export default function POSPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '11px', margin: '4px 0' }}>
               <span>ยอดสุทธิ</span><span>{receiptData.totalAmount.toFixed(2)}</span>
             </div>
+            
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>รับเงิน ({receiptData.paymentMethod === 'cash' ? 'เงินสด' : 'โอนเงิน'})</span><span>{receiptData.paymentMethod === 'cash' ? Number(receiptData.cashReceived).toFixed(2) : receiptData.totalAmount.toFixed(2)}</span>
             </div>
@@ -682,6 +800,7 @@ export default function POSPage() {
                 <span>เงินทอน</span><span>{receiptData.changeAmount.toFixed(2)}</span>
               </div>
             )}
+            
             <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '8px' }}>
               <p style={{ margin: 0 }}>{storeSettings.receipt_footer || "ขอขอบคุณที่มาอุดหนุนและใช้บริการ"}</p>
               <p style={{ margin: '2px 0 0 0' }}>Powered by POS System</p>
