@@ -2,7 +2,6 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../../lib/supabase";
@@ -45,7 +44,7 @@ export default function CustomerStorefront() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
-  const [gpsLocation, setGpsLocation] = useState(""); // 🛠️ เพิ่ม State สำหรับพิกัด GPS แยกต่างหาก
+  const [gpsLocation, setGpsLocation] = useState("");
   const [slipImage, setSlipImage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
@@ -54,13 +53,29 @@ export default function CustomerStorefront() {
   useEffect(() => {
     const fetchStoreData = async () => {
       try {
-        const { data: storeData } = await supabase.from("stores").select("*").limit(1).single();
+        const { data: storeData, error: storeError } = await supabase.from("stores").select("*").limit(1).single();
+        if (storeError) {
+          console.error("ดึงข้อมูลร้านค้าล้มเหลว:", storeError);
+          setLoading(false);
+          return;
+        }
+
         if (storeData) {
           setStoreSettings(storeData);
-          const { data: productsData } = await supabase.from("products").select("*").eq("store_id", storeData.id).gt("stock_qty", 0).order("sort_order", { ascending: true });
-          if (productsData) setProducts(productsData);
+          // 🛠️ ปลดล็อคเงื่อนไขสต๊อก เพื่อให้ดึงสินค้าทั้งหมดมาแสดง (ถ้าหมดให้แสดงป้ายสินค้าหมด)
+          const { data: productsData, error: prodError } = await supabase.from("products").select("*").eq("store_id", storeData.id).order("sort_order", { ascending: true });
+          
+          if (prodError) {
+            console.error("ดึงข้อมูลสินค้าล้มเหลว:", prodError);
+          } else if (productsData) {
+            setProducts(productsData);
+          }
         }
-      } catch (error) { console.error("Error:", error); } finally { setLoading(false); }
+      } catch (error) { 
+        console.error("Error:", error); 
+      } finally { 
+        setLoading(false); 
+      }
     };
     fetchStoreData();
   }, []);
@@ -70,7 +85,7 @@ export default function CustomerStorefront() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const mapsLink = `https://maps.google.com/?q=${position.coords.latitude},${position.coords.longitude}`;
-        setGpsLocation(mapsLink); // 🛠️ นำค่าไปใส่ในช่อง GPS แทนการต่อท้ายที่อยู่
+        setGpsLocation(mapsLink);
       },
       () => alert("กรุณาอนุญาตตำแหน่ง หรือพิมพ์ที่อยู่ด้วยตนเอง")
     );
@@ -99,10 +114,12 @@ export default function CustomerStorefront() {
   };
 
   const addToCart = (product: Product) => {
+    if (product.stock_qty <= 0) { alert("ขออภัย สินค้านี้หมดชั่วคราวครับ"); return; }
+    
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
       if (existing) {
-        if (existing.cart_qty >= product.stock_qty) { alert("สินค้ามีจำกัด"); return prev; }
+        if (existing.cart_qty >= product.stock_qty) { alert("หยิบสินค้าเกินจำนวนที่มีในสต๊อกแล้วครับ"); return prev; }
         return prev.map((item) => item.id === product.id ? { ...item, cart_qty: item.cart_qty + 1 } : item);
       }
       return [...prev, { ...product, cart_qty: 1, remark: "" }];
@@ -131,7 +148,6 @@ export default function CustomerStorefront() {
       const docNo = `${prefix}${runningNum.toString().padStart(4, '0')}`;
       setCreatedDocNo(docNo);
 
-      // 🛠️ จับที่อยู่และพิกัดมารวมกันตอนจะบันทึกลงฐานข้อมูล
       const finalDeliveryAddress = gpsLocation ? `${deliveryAddress}\nพิกัด GPS: ${gpsLocation}` : deliveryAddress;
 
       const payload: OrderPayload = {
@@ -175,7 +191,7 @@ export default function CustomerStorefront() {
   if (loading) return <div className="flex min-h-screen items-center justify-center font-bold text-gray-500">กำลังโหลดเมนูร้านค้า...</div>;
   if (orderSuccess) return (
     <div className="flex flex-col min-h-screen items-center justify-center bg-gray-50 p-6 text-center">
-      <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full">
+      <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full animate-fade-in-up">
         <span className="text-6xl mb-4 block">🎉</span>
         <h2 className="text-2xl font-black text-green-600 mb-2">สั่งซื้อสำเร็จ!</h2>
         <p className="text-gray-500 text-sm mb-2">เลขที่คำสั่งซื้อ: <span className="font-bold text-gray-800">{createdDocNo}</span></p>
@@ -186,114 +202,136 @@ export default function CustomerStorefront() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-100 pb-32 font-sans">
+    <div className="min-h-screen bg-gray-50 pb-32 font-sans">
       <header className="bg-white shadow-sm sticky top-0 z-10">
         <div className="max-w-3xl mx-auto p-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            {storeSettings?.logo_url && <Image src={storeSettings.logo_url} alt="Logo" width={45} height={45} className="rounded-full object-cover border" />}
-            <div><h1 className="font-black text-lg text-gray-800">{storeSettings?.name || "ร้านค้าออนไลน์"}</h1><p className="text-xs text-gray-500">สั่งสะดวก ส่งตรงถึงหน้าบ้าน</p></div>
+            {storeSettings?.logo_url ? (
+              <img src={storeSettings.logo_url} alt="Logo" className="w-12 h-12 rounded-full object-cover border shadow-sm" />
+            ) : (
+               <div className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xl">{storeSettings?.name ? storeSettings.name.charAt(0) : "S"}</div>
+            )}
+            <div><h1 className="font-black text-lg text-gray-800">{storeSettings?.name || "ร้านค้าออนไลน์"}</h1><p className="text-xs text-blue-600 font-bold">สั่งสะดวก ส่งตรงถึงหน้าบ้าน</p></div>
           </div>
           <button onClick={() => router.push("/")} className="cursor-pointer text-xs font-bold text-gray-500 hover:text-blue-600 bg-gray-100 hover:bg-blue-50 px-3 py-2 rounded-lg transition-colors">
             🏠 แอดมิน
           </button>
         </div>
       </header>
+
       <main className="max-w-3xl mx-auto p-4">
-        <div className="grid grid-cols-2 gap-3">
-          {products.map(product => (
-            <div key={product.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-              <div className="relative aspect-square bg-gray-50 p-4">{product.image_url ? <Image src={product.image_url} alt={product.name} fill className="object-contain" /> : <div className="w-full h-full flex items-center justify-center text-gray-300">No Image</div>}</div>
-              <div className="p-3 flex-1 flex flex-col">
-                <h3 className="font-bold text-gray-800 text-sm line-clamp-2">{product.name}</h3>
-                <div className="mt-auto pt-2 flex justify-between items-end">
-                  <span className="font-black text-blue-600 text-sm">{product.sell_price.toFixed(2)} ฿</span>
-                  <button onClick={() => addToCart(product)} className="cursor-pointer bg-blue-600 text-white w-8 h-8 rounded-full font-bold flex items-center justify-center shadow-md active:scale-95">+</button>
+        {products.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+             <span className="text-6xl mb-4 opacity-50 block">📦</span>
+             <p className="text-xl font-bold">ยังไม่มีสินค้าจำหน่ายในขณะนี้</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            {products.map(product => (
+              <div key={product.id} onClick={() => addToCart(product)} className={`bg-white rounded-2xl shadow-sm border ${product.stock_qty <= 0 ? 'border-gray-200 opacity-60' : 'border-gray-100 hover:border-blue-400 cursor-pointer'} overflow-hidden flex flex-col active:scale-95 transition-all group`}>
+                <div className="relative aspect-square bg-gray-50 p-4 flex items-center justify-center">
+                  {product.image_url ? <img src={product.image_url} alt={product.name} className="w-full h-full object-cover rounded-xl" /> : <div className="text-gray-300 text-4xl">No Image</div>}
+                  {/* 🛠️ ป้ายกำกับถ้าสินค้าหมด */}
+                  {product.stock_qty <= 0 && <div className="absolute inset-0 bg-white/70 backdrop-blur-sm flex items-center justify-center"><span className="bg-red-600 text-white px-4 py-1.5 rounded-full font-bold text-sm shadow-md">สินค้าหมด</span></div>}
+                </div>
+                <div className="p-4 flex-1 flex flex-col">
+                  <h3 className="font-bold text-gray-800 text-sm line-clamp-2 leading-snug">{product.name}</h3>
+                  <div className="mt-auto pt-3 flex justify-between items-end">
+                    <span className="font-black text-blue-600 text-lg">{product.sell_price.toLocaleString()} ฿</span>
+                    <button disabled={product.stock_qty <= 0} className={`w-8 h-8 rounded-full font-bold flex items-center justify-center shadow-md transition-colors ${product.stock_qty <= 0 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white group-hover:bg-blue-700'}`}>+</button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </main>
+
       {cart.length > 0 && !showCheckout && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-[0_-4px_20px_rgba(0,0,0,0.08)] z-20">
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-20 animate-fade-in-up">
           <div className="max-w-3xl mx-auto p-4 flex justify-between items-center">
-            <div><p className="text-xs text-gray-400 font-bold">ตะกร้าสินค้า ({cart.length} รายการ)</p><p className="text-2xl font-black text-blue-600">{totalAmount.toFixed(2)} ฿</p></div>
-            <button onClick={() => { setShowCheckout(true); setStep("form"); }} className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full shadow-lg text-sm">ดูตะกร้าสินค้า →</button>
+            <div><p className="text-xs text-gray-500 font-bold mb-1">ตะกร้าสินค้า ({cart.length} รายการ)</p><p className="text-2xl font-black text-blue-600">{totalAmount.toLocaleString()} ฿</p></div>
+            <button onClick={() => { setShowCheckout(true); setStep("form"); }} className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-8 rounded-2xl shadow-lg shadow-blue-600/30 text-base active:scale-95 transition-all">ดูตะกร้าสินค้า →</button>
           </div>
         </div>
       )}
+
       {showCheckout && (
-        <div className="fixed inset-0 bg-gray-100 z-50 overflow-y-auto">
+        <div className="fixed inset-0 bg-gray-50 z-50 overflow-y-auto">
           <div className="max-w-3xl mx-auto bg-white min-h-screen flex flex-col shadow-2xl">
-            <header className="p-4 border-b flex items-center sticky top-0 bg-white z-10">
-              <button onClick={() => setShowCheckout(false)} className="cursor-pointer text-2xl font-bold text-gray-600 mr-4">←</button>
-              <h2 className="text-lg font-black text-gray-800">{step === "form" ? "ยืนยันคำสั่งซื้อและที่อยู่" : "สแกนและแนบสลิปชำระเงิน"}</h2>
+            <header className="p-5 border-b border-gray-100 flex items-center sticky top-0 bg-white z-10 shadow-sm">
+              <button onClick={() => setShowCheckout(false)} className="cursor-pointer w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full font-bold text-gray-600 mr-4 transition-colors">←</button>
+              <h2 className="text-xl font-black text-gray-800">{step === "form" ? "ยืนยันคำสั่งซื้อ" : "ชำระเงิน"}</h2>
             </header>
-            <div className="flex-1 p-4 pb-32">
+            
+            <div className="flex-1 p-5 pb-40">
               {step === "form" ? (
-                <>
-                  <h3 className="font-bold text-gray-700 mb-3 text-sm">รายการสินค้า</h3>
-                  <div className="space-y-3 mb-6">
+                <div className="animate-fade-in">
+                  <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="text-blue-600">🛒</span> รายการสินค้า</h3>
+                  <div className="space-y-3 mb-8">
                     {cart.map(item => (
-                      <div key={item.id} className="bg-gray-50 p-3 rounded-xl border">
-                        <div className="flex justify-between items-start mb-2">
-                          <div className="flex-1 pr-2"><h4 className="font-bold text-sm">{item.name}</h4><p className="font-black text-blue-600 text-sm">{item.sell_price.toFixed(2)} ฿</p></div>
-                          <div className="flex items-center gap-2 bg-white border rounded-lg px-2 py-1">
-                            <button onClick={() => updateQty(item.id, -1)} className="cursor-pointer font-bold text-gray-500 w-6 h-6">-</button>
-                            <span className="font-black text-sm w-4 text-center">{item.cart_qty}</span>
-                            <button onClick={() => updateQty(item.id, 1)} className="cursor-pointer font-bold text-blue-600 w-6 h-6">+</button>
-                            <button onClick={() => removeFromCart(item.id)} className="cursor-pointer text-red-500 font-bold text-xs pl-2 border-l">ลบ</button>
+                      <div key={item.id} className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex-1 pr-3"><h4 className="font-bold text-gray-800 leading-snug">{item.name}</h4><p className="font-black text-blue-600 mt-1">{item.sell_price.toLocaleString()} ฿</p></div>
+                          <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-xl px-2 py-1 shrink-0">
+                            <button onClick={() => updateQty(item.id, -1)} className="cursor-pointer font-black text-gray-500 w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm">-</button>
+                            <span className="font-black w-8 text-center">{item.cart_qty}</span>
+                            <button onClick={() => updateQty(item.id, 1)} className="cursor-pointer font-black text-blue-600 w-8 h-8 flex items-center justify-center bg-white rounded-lg shadow-sm">+</button>
                           </div>
                         </div>
-                        <input type="text" placeholder="หมายเหตุ (เช่น หวานน้อย)..." value={item.remark} onChange={(e) => updateRemark(item.id, e.target.value)} className="w-full text-xs p-2 border rounded-lg outline-none focus:border-blue-400 bg-white" />
+                        <input type="text" placeholder="หมายเหตุ (เช่น หวานน้อย)..." value={item.remark} onChange={(e) => updateRemark(item.id, e.target.value)} className="w-full text-xs p-2.5 border border-gray-200 rounded-xl outline-none focus:border-blue-500 bg-gray-50 focus:bg-white transition-colors" />
+                        <div className="text-right mt-2"><button onClick={() => removeFromCart(item.id)} className="cursor-pointer text-red-500 font-bold text-xs hover:underline">🗑️ ลบรายการนี้</button></div>
                       </div>
                     ))}
                   </div>
-                  <h3 className="font-bold text-gray-700 mb-3 text-sm">ข้อมูลการจัดส่ง</h3>
-                  <form id="order-form" onSubmit={handleProceedToPayment} className="space-y-4">
-                    <div><label className="block text-xs font-bold text-gray-500 mb-1">ชื่อผู้รับ</label><input required type="text" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full p-3 border rounded-xl bg-gray-50 outline-none" /></div>
-                    <div><label className="block text-xs font-bold text-gray-500 mb-1">เบอร์โทรศัพท์</label><input required type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} className="w-full p-3 border rounded-xl bg-gray-50 outline-none" /></div>
-                    
-                    {/* 🛠️ ปรับ UI แยกช่องที่อยู่ และ พิกัด GPS */}
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 mb-1">ที่อยู่จัดส่ง (บ้านเลขที่, ถนน, ตำบล, จังหวัด)</label>
-                      <textarea required value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} className="w-full p-3 border rounded-xl bg-gray-50 outline-none" rows={3} />
-                    </div>
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <label className="text-xs font-bold text-gray-500">พิกัด GPS (เพื่อความแม่นยำ)</label>
-                        <button type="button" onClick={handleGetLocation} className="cursor-pointer text-xs text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded-md active:scale-95">📍 ดึงตำแหน่งปัจจุบัน</button>
-                      </div>
-                      <input type="text" value={gpsLocation} onChange={e => setGpsLocation(e.target.value)} placeholder="คลิกปุ่ม หรือวางลิงก์ Google Maps" className="w-full p-3 border rounded-xl bg-gray-50 outline-none text-xs text-blue-600" />
-                    </div>
 
+                  <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="text-blue-600">📍</span> ข้อมูลการจัดส่ง</h3>
+                  <form id="order-form" onSubmit={handleProceedToPayment} className="space-y-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+                    <div><label className="block text-xs font-bold text-gray-600 mb-1.5">ชื่อผู้รับ</label><input required type="text" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full p-3 border border-gray-300 rounded-xl bg-gray-50 focus:bg-white focus:border-blue-500 outline-none transition-colors" placeholder="ระบุชื่อผู้รับสินค้า" /></div>
+                    <div><label className="block text-xs font-bold text-gray-600 mb-1.5">เบอร์โทรศัพท์</label><input required type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} className="w-full p-3 border border-gray-300 rounded-xl bg-gray-50 focus:bg-white focus:border-blue-500 outline-none transition-colors" placeholder="08X-XXX-XXXX" /></div>
+                    
+                    <div className="pt-2">
+                      <label className="block text-xs font-bold text-gray-600 mb-1.5">ที่อยู่จัดส่ง (บ้านเลขที่, ถนน, ตำบล, จังหวัด)</label>
+                      <textarea required value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} className="w-full p-3 border border-gray-300 rounded-xl bg-gray-50 focus:bg-white focus:border-blue-500 outline-none transition-colors" rows={3} placeholder="กรอกที่อยู่แบบละเอียด..." />
+                    </div>
+                    <div>
+                      <div className="flex justify-between items-center mb-1.5">
+                        <label className="text-xs font-bold text-gray-600">พิกัด GPS (เพื่อความแม่นยำ)</label>
+                        <button type="button" onClick={handleGetLocation} className="cursor-pointer text-xs text-blue-700 font-bold bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg active:scale-95 transition-all shadow-sm">📍 ดึงตำแหน่งปัจจุบัน</button>
+                      </div>
+                      <input type="text" value={gpsLocation} onChange={e => setGpsLocation(e.target.value)} placeholder="คลิกปุ่ม หรือวางลิงก์ Google Maps" className="w-full p-3 border border-gray-300 rounded-xl bg-gray-50 focus:bg-white focus:border-blue-500 outline-none text-xs text-blue-600 transition-colors" />
+                    </div>
                   </form>
-                </>
+                </div>
               ) : (
-                <div className="flex flex-col items-center justify-center text-center py-4">
-                  <h3 className="font-bold text-gray-800 mb-1">สแกนเพื่อชำระเงิน</h3>
-                  <p className="text-xs text-gray-500 mb-4">ยอดชำระสุทธิ: <span className="font-black text-blue-600 text-lg">{totalAmount.toFixed(2)} ฿</span></p>
-                  {storeSettings?.promptpay_number ? (
-                    <div className="bg-white p-4 rounded-2xl shadow-md border mb-6"><QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, totalAmount)} size={200} /></div>
-                  ) : <p className="text-red-500 text-xs mb-6 font-bold">ร้านค้านี้ยังไม่ได้ตั้งค่าเบอร์ PromptPay</p>}
+                <div className="flex flex-col items-center justify-center text-center py-6 animate-fade-in">
+                  <div className="bg-blue-50 text-blue-700 font-bold px-6 py-2 rounded-full mb-6 border border-blue-100 shadow-sm">ยอดชำระสุทธิ: <span className="font-black text-xl ml-2">{totalAmount.toLocaleString()} ฿</span></div>
                   
-                  <div className="w-full max-w-xs bg-gray-50 border p-4 rounded-xl mb-6">
-                    <label className="block text-sm font-bold text-gray-700 mb-2">อัปโหลดสลิปโอนเงิน <span className="text-red-500">*</span></label>
-                    <input type="file" accept="image/*" onChange={handleSlipUpload} className="cursor-pointer w-full text-xs" />
-                    {slipImage && <div className="mt-3 relative w-full h-40 border rounded-lg overflow-hidden bg-white"><img src={slipImage} alt="Slip" className="w-full h-full object-contain" /></div>}
+                  {storeSettings?.promptpay_number ? (
+                    <div className="bg-white p-6 rounded-3xl shadow-lg border-2 border-gray-100 mb-8">
+                      <QRCodeSVG value={generatePromptPayPayload(storeSettings.promptpay_number, totalAmount)} size={220} />
+                      <p className="mt-4 text-xs font-bold text-gray-500">สแกนผ่านแอปธนาคารเพื่อโอนเงิน</p>
+                    </div>
+                  ) : <p className="text-red-500 text-sm mb-8 font-bold bg-red-50 p-4 rounded-xl">⚠️ ร้านค้านี้ยังไม่ได้ตั้งค่าเบอร์ PromptPay</p>}
+                  
+                  <div className="w-full max-w-sm bg-gray-50 border-2 border-dashed border-gray-300 p-6 rounded-3xl mb-6">
+                    <label className="block text-sm font-bold text-gray-700 mb-3">อัปโหลดรูปสลิปโอนเงิน <span className="text-red-500">*</span></label>
+                    <input type="file" accept="image/*" onChange={handleSlipUpload} className="cursor-pointer w-full text-xs file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all" />
+                    {slipImage && <div className="mt-4 relative w-full h-48 border-2 border-gray-200 rounded-2xl overflow-hidden bg-white shadow-inner"><img src={slipImage} alt="Slip" className="w-full h-full object-contain" /></div>}
                   </div>
                 </div>
               )}
             </div>
-            <div className="fixed bottom-0 left-0 right-0 max-w-3xl mx-auto bg-white p-4 border-t shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
-              <div className="flex justify-between items-center mb-3"><span className="font-bold text-gray-600 text-sm">ยอดชำระสุทธิ</span><span className="text-2xl font-black text-blue-600">{totalAmount.toFixed(2)} ฿</span></div>
+            
+            <div className="fixed bottom-0 left-0 right-0 max-w-3xl mx-auto bg-white p-5 border-t border-gray-100 shadow-[0_-15px_30px_rgba(0,0,0,0.06)] z-20">
+              <div className="flex justify-between items-end mb-4 bg-gray-50 px-4 py-3 rounded-xl border border-gray-200"><span className="font-bold text-gray-500 text-sm">ยอดรวมทั้งหมด</span><span className="text-3xl font-black text-blue-600 tracking-tighter">{totalAmount.toLocaleString()} ฿</span></div>
               {step === "form" ? (
-                <button form="order-form" type="submit" className="cursor-pointer w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-lg">ไปหน้าชำระเงิน (QR Code) →</button>
+                <button form="order-form" type="submit" className="cursor-pointer w-full bg-blue-600 hover:bg-blue-700 text-white font-black text-lg py-4 rounded-2xl shadow-[0_10px_20px_rgba(37,99,235,0.3)] transition-all active:scale-95">ชำระเงิน (QR Code) →</button>
               ) : (
                 <div className="flex gap-3">
-                  <button onClick={() => setStep("form")} className="cursor-pointer flex-1 bg-gray-100 text-gray-700 font-bold py-3.5 rounded-xl">← กลับ</button>
-                  <button onClick={handleFinalSubmitOrder} disabled={isSubmitting || !slipImage} className="cursor-pointer flex-[2] bg-green-600 disabled:bg-green-300 text-white font-bold py-3.5 rounded-xl shadow-lg">
-                    {isSubmitting ? "กำลังส่งออเดอร์..." : "✅ ส่งออเดอร์ให้ร้าน"}
+                  <button onClick={() => setStep("form")} className="cursor-pointer flex-[1] bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-4 rounded-2xl transition-colors">← แก้ไข</button>
+                  <button onClick={handleFinalSubmitOrder} disabled={isSubmitting || !slipImage} className="cursor-pointer flex-[2.5] bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:text-gray-500 text-white font-black text-lg py-4 rounded-2xl shadow-[0_10px_20px_rgba(34,197,94,0.3)] disabled:shadow-none transition-all active:scale-95 flex items-center justify-center gap-2">
+                    {isSubmitting ? "⏳ กำลังส่งข้อมูล..." : "✅ ยืนยันการสั่งซื้อ"}
                   </button>
                 </div>
               )}
@@ -303,4 +341,4 @@ export default function CustomerStorefront() {
       )}
     </div>
   );
-} 
+}
