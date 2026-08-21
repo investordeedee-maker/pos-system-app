@@ -117,14 +117,19 @@ export default function Home() {
             <div className="w-14 h-14 bg-pink-50 text-pink-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">🖥️</div>
             <div><h2 className="text-lg font-black text-gray-800">จอฝั่งลูกค้า</h2><p className="text-xs text-gray-500 mt-1">แสดงยอดเงินและ QR สแกนจ่าย</p></div>
           </button>
-        </div>
         
-         {/* นำโค้ดนี้ไปวางต่อท้ายปุ่ม "จอฝั่งลูกค้า" ในไฟล์ app/page.tsx */}
           <button onClick={() => window.open("/kiosk", "_blank")} className="cursor-pointer flex items-center p-6 bg-blue-50 rounded-3xl shadow-sm border border-blue-200 hover:shadow-lg hover:border-blue-400 transition-all text-left group">
             <div className="w-14 h-14 bg-white text-blue-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0 border border-blue-100">🤖</div>
             <div><h2 className="text-lg font-black text-blue-900">เปิดตู้ Kiosk (สั่งเอง)</h2><p className="text-xs text-blue-700 mt-1">ตู้บริการสั่งและสแกนจ่ายอัตโนมัติ</p></div>
           </button>
-      </div>
+          
+          <button onClick={() => router.push('/orders')} className="cursor-pointer flex items-center p-6 bg-blue-600 rounded-3xl shadow-sm border border-blue-700 hover:shadow-lg hover:bg-blue-700 transition-all text-left group">
+            <div className="w-14 h-14 bg-white/20 text-white rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">📦</div>
+            <div><h2 className="text-lg font-black text-white">จัดการคำสั่งซื้อ</h2><p className="text-xs text-blue-100 mt-1">อัปเดตสถานะและแชทกับลูกค้า</p></div>
+          </button>
+        </div>
+        
+     </div>
     </div>
-  );
+ );
 }
