@@ -34,7 +34,7 @@ function generatePromptPayPayload(mobileOrId: string, amount: number): string {
 }
 
 export default function CustomerStorefront() {
-  const router = useRouter(); // 🛠️ เพิ่ม Router สำหรับปุ่มกลับ Home
+  const router = useRouter(); 
   const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -45,6 +45,7 @@ export default function CustomerStorefront() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [gpsLocation, setGpsLocation] = useState(""); // 🛠️ เพิ่ม State สำหรับพิกัด GPS แยกต่างหาก
   const [slipImage, setSlipImage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
@@ -69,7 +70,7 @@ export default function CustomerStorefront() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const mapsLink = `https://maps.google.com/?q=${position.coords.latitude},${position.coords.longitude}`;
-        setDeliveryAddress((prev) => prev ? `${prev} \nพิกัด GPS: ${mapsLink}` : `พิกัด GPS: ${mapsLink}`);
+        setGpsLocation(mapsLink); // 🛠️ นำค่าไปใส่ในช่อง GPS แทนการต่อท้ายที่อยู่
       },
       () => alert("กรุณาอนุญาตตำแหน่ง หรือพิมพ์ที่อยู่ด้วยตนเอง")
     );
@@ -130,10 +131,13 @@ export default function CustomerStorefront() {
       const docNo = `${prefix}${runningNum.toString().padStart(4, '0')}`;
       setCreatedDocNo(docNo);
 
+      // 🛠️ จับที่อยู่และพิกัดมารวมกันตอนจะบันทึกลงฐานข้อมูล
+      const finalDeliveryAddress = gpsLocation ? `${deliveryAddress}\nพิกัด GPS: ${gpsLocation}` : deliveryAddress;
+
       const payload: OrderPayload = {
         store_id: storeSettings.id, doc_no: docNo, order_source: "ONLINE", status: "pending", 
         total_amount: totalAmount, payment_method: "transfer", customer_name: customerName, 
-        customer_phone: customerPhone, delivery_address: deliveryAddress,
+        customer_phone: customerPhone, delivery_address: finalDeliveryAddress,
       };
       if (slipImage) payload.slip_image = slipImage; 
 
@@ -145,7 +149,21 @@ export default function CustomerStorefront() {
       
       if (itemsError) throw itemsError;
 
-      for (const item of cart) await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
+      for (const item of cart) {
+        const newBalance = item.stock_qty - item.cart_qty;
+        
+        await supabase.from("products").update({ stock_qty: newBalance }).eq("id", item.id);
+        
+        await supabase.from("inventory_transactions").insert([{
+          store_id: storeSettings.id,
+          product_id: item.id,
+          transaction_type: "OUT",
+          quantity: item.cart_qty,
+          balance_after: newBalance,
+          reference_doc: docNo,
+          notes: "สั่งซื้อผ่านออนไลน์ (Online Store)"
+        }]);
+      }
 
       setOrderSuccess(true); setCart([]); setShowCheckout(false); setSlipImage(null);
     } catch (error: unknown) { 
@@ -175,7 +193,6 @@ export default function CustomerStorefront() {
             {storeSettings?.logo_url && <Image src={storeSettings.logo_url} alt="Logo" width={45} height={45} className="rounded-full object-cover border" />}
             <div><h1 className="font-black text-lg text-gray-800">{storeSettings?.name || "ร้านค้าออนไลน์"}</h1><p className="text-xs text-gray-500">สั่งสะดวก ส่งตรงถึงหน้าบ้าน</p></div>
           </div>
-          {/* 🛠️ เพิ่มปุ่มกลับหน้า Home สำหรับแอดมิน */}
           <button onClick={() => router.push("/")} className="cursor-pointer text-xs font-bold text-gray-500 hover:text-blue-600 bg-gray-100 hover:bg-blue-50 px-3 py-2 rounded-lg transition-colors">
             🏠 แอดมิน
           </button>
@@ -236,13 +253,20 @@ export default function CustomerStorefront() {
                   <form id="order-form" onSubmit={handleProceedToPayment} className="space-y-4">
                     <div><label className="block text-xs font-bold text-gray-500 mb-1">ชื่อผู้รับ</label><input required type="text" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full p-3 border rounded-xl bg-gray-50 outline-none" /></div>
                     <div><label className="block text-xs font-bold text-gray-500 mb-1">เบอร์โทรศัพท์</label><input required type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} className="w-full p-3 border rounded-xl bg-gray-50 outline-none" /></div>
+                    
+                    {/* 🛠️ ปรับ UI แยกช่องที่อยู่ และ พิกัด GPS */}
                     <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <label className="text-xs font-bold text-gray-500">ที่อยู่จัดส่ง / พิกัด GPS</label>
-                        <button type="button" onClick={handleGetLocation} className="cursor-pointer text-xs text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded-md">📍 แชร์พิกัด</button>
-                      </div>
+                      <label className="block text-xs font-bold text-gray-500 mb-1">ที่อยู่จัดส่ง (บ้านเลขที่, ถนน, ตำบล, จังหวัด)</label>
                       <textarea required value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} className="w-full p-3 border rounded-xl bg-gray-50 outline-none" rows={3} />
                     </div>
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="text-xs font-bold text-gray-500">พิกัด GPS (เพื่อความแม่นยำ)</label>
+                        <button type="button" onClick={handleGetLocation} className="cursor-pointer text-xs text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded-md active:scale-95">📍 ดึงตำแหน่งปัจจุบัน</button>
+                      </div>
+                      <input type="text" value={gpsLocation} onChange={e => setGpsLocation(e.target.value)} placeholder="คลิกปุ่ม หรือวางลิงก์ Google Maps" className="w-full p-3 border rounded-xl bg-gray-50 outline-none text-xs text-blue-600" />
+                    </div>
+
                   </form>
                 </>
               ) : (

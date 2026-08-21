@@ -1,0 +1,8 @@
+{
+  "name": "Store Online",
+  "short_name": "Store",
+  "display": "standalone",
+  "start_url": "/store",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb"
+}
