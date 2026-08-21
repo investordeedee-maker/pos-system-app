@@ -172,19 +172,15 @@ export default function CustomerStorefront() {
 
       for (const item of cart) {
         const newBalance = item.stock_qty - item.cart_qty;
-        
         await supabase.from("products").update({ stock_qty: newBalance }).eq("id", item.id);
-        
         await supabase.from("inventory_transactions").insert([{
-          store_id: storeSettings.id,
-          product_id: item.id,
-          transaction_type: "OUT",
-          quantity: item.cart_qty,
-          balance_after: newBalance,
-          reference_doc: docNo,
-          notes: "สั่งซื้อผ่านออนไลน์ (Online Store)"
+          store_id: storeSettings.id, product_id: item.id, transaction_type: "OUT",
+          quantity: item.cart_qty, balance_after: newBalance, reference_doc: docNo, notes: "สั่งซื้อผ่านออนไลน์"
         }]);
       }
+
+      // 💾 บันทึกเลขบิลลงในเครื่องมือถือลูกค้า เพื่อให้หน้า Track ดึงไปกรอกให้อัตโนมัติ
+      localStorage.setItem("last_order_doc", docNo);
 
       setOrderSuccess(true); setCart([]); setShowCheckout(false); setSlipImage(null);
     } catch (error: unknown) { 
@@ -193,27 +189,47 @@ export default function CustomerStorefront() {
     } finally { setIsSubmitting(false); }
   };
 
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(createdDocNo);
+    alert("คัดลอกเลขคำสั่งซื้อเรียบร้อยแล้ว!");
+  };
+
   if (loading) return <div className="flex min-h-screen items-center justify-center font-bold text-gray-500">กำลังโหลดเมนูร้านค้า...</div>;
   if (orderSuccess) return (
-    <div className="flex flex-col min-h-screen items-center justify-center bg-gray-50 p-6 text-center">
-      <div className="bg-white p-8 rounded-[2rem] shadow-xl max-w-md w-full animate-fade-in-up border border-gray-100">
-        <span className="text-7xl mb-4 block animate-bounce">🎉</span>
-        <h2 className="text-3xl font-black text-green-600 mb-2">สั่งซื้อสำเร็จ!</h2>
-        <p className="text-gray-500 text-sm mb-4">เลขที่คำสั่งซื้อ: <span className="font-black text-gray-800 text-lg bg-gray-100 px-2 py-1 rounded-lg ml-1">{createdDocNo}</span></p>
-        <p className="text-gray-600 mb-8 font-medium">ทางร้านได้รับคำสั่งซื้อและสลิปของคุณเรียบร้อยแล้ว จะรีบดำเนินการให้เร็วที่สุดครับ</p>
-        
-        <div className="flex flex-col gap-3">
-          {/* ปุ่มใหม่: ให้ลูกค้ากดไปหน้าแชทและเช็คสถานะได้ทันที */}
-          <button onClick={() => router.push("/track")} className="cursor-pointer bg-blue-600 text-white font-bold py-4 px-8 rounded-2xl w-full hover:bg-blue-700 transition-all shadow-[0_10px_20px_rgba(37,99,235,0.2)] flex items-center justify-center gap-2 text-lg active:scale-95">
-            📦 ติดตามออเดอร์ / แชทกับร้าน
-          </button>
+    <>
+      {/* ซ่อนส่วนอื่นๆ เวลาสั่งพิมพ์ใบเสร็จ */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body * { visibility: hidden; }
+          .print-area, .print-area * { visibility: visible; }
+          .print-area { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: flex-start; padding-top: 2rem; }
+          .no-print { display: none !important; }
+        }
+      `}} />
+      <div className="flex flex-col min-h-screen items-center justify-center bg-gray-50 p-6 text-center print-area">
+        <div className="bg-white p-8 rounded-[2rem] shadow-xl max-w-md w-full animate-fade-in-up border border-gray-100">
+          <span className="text-7xl mb-4 block animate-bounce">🎉</span>
+          <h2 className="text-3xl font-black text-green-600 mb-2">สั่งซื้อสำเร็จ!</h2>
+          <p className="text-gray-500 text-sm mb-4">เลขที่คำสั่งซื้อ: <span className="font-black text-gray-800 text-lg bg-gray-100 px-2 py-1 rounded-lg ml-1">{createdDocNo}</span></p>
           
-          <button onClick={() => { setOrderSuccess(false); setStep("form"); }} className="cursor-pointer bg-gray-50 border border-gray-200 text-gray-700 font-bold py-3.5 px-8 rounded-2xl w-full hover:bg-gray-100 transition-all active:scale-95">
-            ← กลับหน้าหลักร้านค้า
-          </button>
+          <div className="flex gap-2 mb-6 no-print">
+             <button onClick={copyToClipboard} className="cursor-pointer flex-1 bg-gray-100 font-bold py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-200 transition-colors border border-gray-200 shadow-sm active:scale-95">📋 คัดลอกเลขบิล</button>
+             <button onClick={() => window.print()} className="cursor-pointer flex-1 bg-gray-100 font-bold py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-200 transition-colors border border-gray-200 shadow-sm active:scale-95">💾 บันทึกรูป/PDF</button>
+          </div>
+
+          <p className="text-gray-600 mb-8 font-medium">ทางร้านได้รับคำสั่งซื้อและสลิปของคุณเรียบร้อยแล้ว จะรีบดำเนินการให้เร็วที่สุดครับ</p>
+          
+          <div className="flex flex-col gap-3 no-print">
+            <button onClick={() => router.push("/track")} className="cursor-pointer bg-blue-600 text-white font-bold py-4 px-8 rounded-2xl w-full hover:bg-blue-700 transition-all shadow-[0_10px_20px_rgba(37,99,235,0.2)] flex items-center justify-center gap-2 text-lg active:scale-95">
+              📦 ติดตามออเดอร์ / แชท
+            </button>
+            <button onClick={() => { setOrderSuccess(false); setStep("form"); }} className="cursor-pointer bg-gray-50 border border-gray-200 text-gray-700 font-bold py-3.5 px-8 rounded-2xl w-full hover:bg-gray-100 transition-all active:scale-95">
+              ← กลับหน้าหลักร้านค้า
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 
   return (
@@ -228,9 +244,7 @@ export default function CustomerStorefront() {
             )}
             <div><h1 className="font-black text-lg text-gray-800">{storeSettings?.name || "ร้านค้าออนไลน์"}</h1><p className="text-xs text-blue-600 font-bold">สั่งสะดวก ส่งตรงถึงหน้าบ้าน</p></div>
           </div>
-          
           <div className="flex items-center gap-2">
-            {/* ปุ่มใหม่: สำหรับลูกค้าที่ต้องการเช็คสถานะในภายหลัง */}
             <button onClick={() => router.push("/track")} className="cursor-pointer text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 px-3 py-2.5 rounded-xl transition-colors shadow-sm flex items-center gap-1.5 active:scale-95">
               <span className="text-base">📦</span> ติดตามออเดอร์
             </button>
