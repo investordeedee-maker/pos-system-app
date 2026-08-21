@@ -83,6 +83,11 @@ export default function Home() {
             <div><h2 className="text-lg font-black text-gray-800">แดชบอร์ด & ยืนยันสลิป</h2><p className="text-xs text-gray-500 mt-1">ดูรายงานการขาย ตรวจสลิป</p></div>
           </button>
 
+          <button onClick={() => router.push("/inventory")} className="cursor-pointer flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-indigo-300 transition-all text-left group">
+            <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">📋</div>
+            <div><h2 className="text-lg font-black text-gray-800">คุมสต๊อก & Stock Card</h2><p className="text-xs text-gray-500 mt-1">รับเข้าสินค้าและดูความเคลื่อนไหว</p></div>
+          </button>
+
           <button onClick={() => router.push("/products")} className="cursor-pointer flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-yellow-300 transition-all text-left group">
             <div className="w-14 h-14 bg-yellow-50 text-yellow-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">📦</div>
             <div><h2 className="text-lg font-black text-gray-800">จัดการคลังสินค้า</h2><p className="text-xs text-gray-500 mt-1">เพิ่ม/ลบ และแก้ไขราคาสินค้า</p></div>
@@ -113,7 +118,12 @@ export default function Home() {
             <div><h2 className="text-lg font-black text-gray-800">จอฝั่งลูกค้า</h2><p className="text-xs text-gray-500 mt-1">แสดงยอดเงินและ QR สแกนจ่าย</p></div>
           </button>
         </div>
-
+        
+         {/* นำโค้ดนี้ไปวางต่อท้ายปุ่ม "จอฝั่งลูกค้า" ในไฟล์ app/page.tsx */}
+          <button onClick={() => window.open("/kiosk", "_blank")} className="cursor-pointer flex items-center p-6 bg-blue-50 rounded-3xl shadow-sm border border-blue-200 hover:shadow-lg hover:border-blue-400 transition-all text-left group">
+            <div className="w-14 h-14 bg-white text-blue-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0 border border-blue-100">🤖</div>
+            <div><h2 className="text-lg font-black text-blue-900">เปิดตู้ Kiosk (สั่งเอง)</h2><p className="text-xs text-blue-700 mt-1">ตู้บริการสั่งและสแกนจ่ายอัตโนมัติ</p></div>
+          </button>
       </div>
     </div>
   );

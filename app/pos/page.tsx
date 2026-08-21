@@ -77,7 +77,6 @@ export default function POSPage() {
   const [cashReceived, setCashReceived] = useState<string>(""); 
   const [isProcessing, setIsProcessing] = useState(false);
   
-  // 🏢 State สำหรับระบบลูกค้าและใบกำกับภาษี
   const [docType, setDocType] = useState<"ABB" | "FULL">("ABB");
   const [searchTaxId, setSearchTaxId] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -232,6 +231,7 @@ export default function POSPage() {
     return `${prefix}${runningNum.toString().padStart(4, '0')}`;
   };
 
+  // 📦 บันทึกบิลค้าง (ตัดสต๊อกและลงประวัติ OUT)
   const handleSavePendingOrder = async () => {
     playBeep();
     if (!storeSettings?.id || cart.length === 0) return;
@@ -249,7 +249,22 @@ export default function POSPage() {
 
       const orderItemsToInsert = cart.map((item) => ({ order_id: orderData.id, product_id: item.id, qty: item.cart_qty, unit_price: item.price, remark: item.remark || "" }));
       await supabase.from("order_items").insert(orderItemsToInsert);
-      for (const item of cart) await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
+      
+      for (const item of cart) {
+        const newBalance = item.stock_qty - item.cart_qty;
+        // อัปเดตยอดสินค้าคงเหลือ
+        await supabase.from("products").update({ stock_qty: newBalance }).eq("id", item.id);
+        // บันทึกรายการลง Stock Card (OUT)
+        await supabase.from("inventory_transactions").insert([{
+          store_id: storeSettings.id,
+          product_id: item.id,
+          transaction_type: "OUT",
+          quantity: item.cart_qty,
+          balance_after: newBalance,
+          reference_doc: docNo,
+          notes: "บันทึกบิลค้างชำระ (Pending)"
+        }]);
+      }
       
       setProducts(prev => prev.map(p => { const sold = cart.find(c => c.id === p.id); return sold ? { ...p, stock_qty: p.stock_qty - sold.cart_qty } : p; }));
       setSavedPendingReceipt({ docNo, docType, customer: selectedCustomer, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod: 'pending', cashReceived: "", changeAmount: 0, date: now });
@@ -257,6 +272,7 @@ export default function POSPage() {
     } catch { } finally { setIsProcessing(false); }
   };
 
+  // 📦 ยืนยันชำระเงิน (ตัดสต๊อกและลงประวัติ OUT)
   const handleConfirmPayment = async () => {
     playBeep();
     if (!storeSettings?.id || cart.length === 0) return;
@@ -276,7 +292,22 @@ export default function POSPage() {
 
       const orderItemsToInsert = cart.map((item) => ({ order_id: orderData.id, product_id: item.id, qty: item.cart_qty, unit_price: item.price, remark: item.remark || "" }));
       await supabase.from("order_items").insert(orderItemsToInsert);
-      for (const item of cart) await supabase.from("products").update({ stock_qty: item.stock_qty - item.cart_qty }).eq("id", item.id);
+      
+      for (const item of cart) {
+        const newBalance = item.stock_qty - item.cart_qty;
+        // อัปเดตยอดสินค้าคงเหลือ
+        await supabase.from("products").update({ stock_qty: newBalance }).eq("id", item.id);
+        // บันทึกรายการลง Stock Card (OUT)
+        await supabase.from("inventory_transactions").insert([{
+          store_id: storeSettings.id,
+          product_id: item.id,
+          transaction_type: "OUT",
+          quantity: item.cart_qty,
+          balance_after: newBalance,
+          reference_doc: docNo,
+          notes: "ขายสินค้าหน้าร้าน (POS)"
+        }]);
+      }
       
       setProducts(prev => prev.map(p => { const sold = cart.find(c => c.id === p.id); return sold ? { ...p, stock_qty: p.stock_qty - sold.cart_qty } : p; }));
       setReceiptData({ docNo, docType, customer: selectedCustomer, items: cart, totalAmount, totalExempt, totalVatable, vatAmount, paymentMethod, cashReceived: parsedCash, changeAmount, date: now });
@@ -413,7 +444,6 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* Checkout Modal */}
       {showCheckout && storeSettings && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4 no-print">
           <div className="bg-white rounded-2xl md:rounded-3xl shadow-2xl w-full max-w-4xl max-h-[95dvh] flex flex-col overflow-hidden">
@@ -426,12 +456,11 @@ export default function POSPage() {
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
               <div className="w-full md:w-1/2 bg-gray-50 p-4 flex flex-col border-b md:border-b-0 md:border-r border-gray-200 overflow-y-auto">
                 
-                {/* 🏢 เลือกประเภทบิลและลูกค้า */}
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-4 shrink-0">
                   <label className="block text-sm font-bold text-gray-700 mb-2">ประเภทเอกสาร (บิล)</label>
                   <div className="flex gap-2 mb-3">
-                    <button onClick={() => setDocType("ABB")} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all border ${docType === "ABB" ? "bg-blue-600 text-white border-blue-600" : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"}`}>ใบกำกับภาษีอย่างย่อ (ABB)</button>
-                    <button onClick={() => setDocType("FULL")} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all border ${docType === "FULL" ? "bg-blue-600 text-white border-blue-600" : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"}`}>ใบกำกับภาษีเต็มรูป (FULL)</button>
+                    <button onClick={() => setDocType("ABB")} className={`cursor-pointer flex-1 py-2 rounded-lg font-bold text-sm transition-all border ${docType === "ABB" ? "bg-blue-600 text-white border-blue-600" : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"}`}>ใบกำกับภาษีอย่างย่อ (ABB)</button>
+                    <button onClick={() => setDocType("FULL")} className={`cursor-pointer flex-1 py-2 rounded-lg font-bold text-sm transition-all border ${docType === "FULL" ? "bg-blue-600 text-white border-blue-600" : "bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100"}`}>ใบกำกับภาษีเต็มรูป (FULL)</button>
                   </div>
 
                   {docType === "FULL" && (
@@ -439,7 +468,7 @@ export default function POSPage() {
                       <label className="block text-xs font-bold text-blue-800 mb-1">เลขประจำตัวผู้เสียภาษี 13 หลัก</label>
                       <div className="flex gap-2">
                         <input type="text" maxLength={13} placeholder="เช่น 01055xxxxxxxx" value={searchTaxId} onChange={(e) => setSearchTaxId(e.target.value.replace(/[^0-9]/g, ''))} className="flex-1 p-2 text-sm border border-gray-300 rounded outline-none focus:border-blue-400" />
-                        <button onClick={handleSearchCustomer} className="bg-blue-600 hover:bg-blue-700 text-white px-3 rounded font-bold text-sm transition-colors">ค้นหา</button>
+                        <button onClick={handleSearchCustomer} className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-3 rounded font-bold text-sm transition-colors">ค้นหา</button>
                       </div>
 
                       {selectedCustomer && (
@@ -456,7 +485,7 @@ export default function POSPage() {
                           <input type="text" placeholder="ชื่อบริษัท / ชื่อ-นามสกุล" value={newCustomerData.name} onChange={(e) => setNewCustomerData({...newCustomerData, name: e.target.value})} className="w-full p-2 text-xs border border-gray-300 rounded outline-none" />
                           <input type="text" placeholder="สาขา (เช่น สำนักงานใหญ่ หรือ 00001)" value={newCustomerData.branch} onChange={(e) => setNewCustomerData({...newCustomerData, branch: e.target.value})} className="w-full p-2 text-xs border border-gray-300 rounded outline-none" />
                           <input type="text" placeholder="ที่อยู่แบบเต็ม" value={newCustomerData.address} onChange={(e) => setNewCustomerData({...newCustomerData, address: e.target.value})} className="w-full p-2 text-xs border border-gray-300 rounded outline-none" />
-                          <button onClick={handleSaveCustomer} className="w-full bg-green-600 text-white p-2 rounded font-bold text-xs">💾 บันทึกลูกค้าใหม่</button>
+                          <button onClick={handleSaveCustomer} className="cursor-pointer w-full bg-green-600 text-white p-2 rounded font-bold text-xs">💾 บันทึกลูกค้าใหม่</button>
                         </div>
                       )}
                     </div>
@@ -523,7 +552,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* Pending Orders Modal */}
       {showPendingModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4 no-print">
           <div className="bg-white rounded-2xl md:rounded-3xl shadow-2xl w-full max-w-4xl max-h-[95dvh] flex flex-col overflow-hidden">
@@ -620,7 +648,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* บันทึกบิลค้าง Modal */}
       {savedPendingReceipt && storeSettings && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
@@ -653,7 +680,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* Success Modal */}
       {receiptData && storeSettings && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 no-print">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
@@ -694,9 +720,7 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* 🖨️ โซนสำหรับเครื่องพิมพ์ใบเสร็จ */}
       <div className="print-area">
-        {/* สำหรับพิมพ์แจ้งหนี้ชั่วคราว (Draft) */}
         {showCheckout && !receiptData && (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '6px' }}>
@@ -739,7 +763,6 @@ export default function POSPage() {
           </div>
         )}
 
-        {/* สำหรับพิมพ์ใบเสร็จและใบกำกับภาษี (Receipt) */}
         {receiptData && storeSettings && (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '6px' }}>
