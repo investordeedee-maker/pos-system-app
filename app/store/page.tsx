@@ -53,7 +53,13 @@ export default function CustomerStorefront() {
   useEffect(() => {
     const fetchStoreData = async () => {
       try {
-        const { data: storeData, error: storeError } = await supabase.from("stores").select("*").limit(1).single();
+        const { data: storeData, error: storeError } = await supabase
+          .from("stores")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+          
         if (storeError) {
           console.error("ดึงข้อมูลร้านค้าล้มเหลว:", storeError);
           setLoading(false);
@@ -62,7 +68,6 @@ export default function CustomerStorefront() {
 
         if (storeData) {
           setStoreSettings(storeData);
-          // 🛠️ ปลดล็อคเงื่อนไขสต๊อก เพื่อให้ดึงสินค้าทั้งหมดมาแสดง (ถ้าหมดให้แสดงป้ายสินค้าหมด)
           const { data: productsData, error: prodError } = await supabase.from("products").select("*").eq("store_id", storeData.id).order("sort_order", { ascending: true });
           
           if (prodError) {
@@ -191,12 +196,22 @@ export default function CustomerStorefront() {
   if (loading) return <div className="flex min-h-screen items-center justify-center font-bold text-gray-500">กำลังโหลดเมนูร้านค้า...</div>;
   if (orderSuccess) return (
     <div className="flex flex-col min-h-screen items-center justify-center bg-gray-50 p-6 text-center">
-      <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full animate-fade-in-up">
-        <span className="text-6xl mb-4 block">🎉</span>
-        <h2 className="text-2xl font-black text-green-600 mb-2">สั่งซื้อสำเร็จ!</h2>
-        <p className="text-gray-500 text-sm mb-2">เลขที่คำสั่งซื้อ: <span className="font-bold text-gray-800">{createdDocNo}</span></p>
-        <p className="text-gray-600 mb-6">ทางร้านได้รับคำสั่งซื้อและสลิปของคุณเรียบร้อยแล้ว จะรีบดำเนินการจัดส่งให้ครับ</p>
-        <button onClick={() => { setOrderSuccess(false); setStep("form"); }} className="cursor-pointer bg-blue-600 text-white font-bold py-3 px-8 rounded-full w-full hover:bg-blue-700 transition-all shadow-md">กลับสู่หน้าร้าน</button>
+      <div className="bg-white p-8 rounded-[2rem] shadow-xl max-w-md w-full animate-fade-in-up border border-gray-100">
+        <span className="text-7xl mb-4 block animate-bounce">🎉</span>
+        <h2 className="text-3xl font-black text-green-600 mb-2">สั่งซื้อสำเร็จ!</h2>
+        <p className="text-gray-500 text-sm mb-4">เลขที่คำสั่งซื้อ: <span className="font-black text-gray-800 text-lg bg-gray-100 px-2 py-1 rounded-lg ml-1">{createdDocNo}</span></p>
+        <p className="text-gray-600 mb-8 font-medium">ทางร้านได้รับคำสั่งซื้อและสลิปของคุณเรียบร้อยแล้ว จะรีบดำเนินการให้เร็วที่สุดครับ</p>
+        
+        <div className="flex flex-col gap-3">
+          {/* ปุ่มใหม่: ให้ลูกค้ากดไปหน้าแชทและเช็คสถานะได้ทันที */}
+          <button onClick={() => router.push("/track")} className="cursor-pointer bg-blue-600 text-white font-bold py-4 px-8 rounded-2xl w-full hover:bg-blue-700 transition-all shadow-[0_10px_20px_rgba(37,99,235,0.2)] flex items-center justify-center gap-2 text-lg active:scale-95">
+            📦 ติดตามออเดอร์ / แชทกับร้าน
+          </button>
+          
+          <button onClick={() => { setOrderSuccess(false); setStep("form"); }} className="cursor-pointer bg-gray-50 border border-gray-200 text-gray-700 font-bold py-3.5 px-8 rounded-2xl w-full hover:bg-gray-100 transition-all active:scale-95">
+            ← กลับหน้าหลักร้านค้า
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -213,9 +228,16 @@ export default function CustomerStorefront() {
             )}
             <div><h1 className="font-black text-lg text-gray-800">{storeSettings?.name || "ร้านค้าออนไลน์"}</h1><p className="text-xs text-blue-600 font-bold">สั่งสะดวก ส่งตรงถึงหน้าบ้าน</p></div>
           </div>
-          <button onClick={() => router.push("/")} className="cursor-pointer text-xs font-bold text-gray-500 hover:text-blue-600 bg-gray-100 hover:bg-blue-50 px-3 py-2 rounded-lg transition-colors">
-            🏠 หน้าหลัก
-          </button>
+          
+          <div className="flex items-center gap-2">
+            {/* ปุ่มใหม่: สำหรับลูกค้าที่ต้องการเช็คสถานะในภายหลัง */}
+            <button onClick={() => router.push("/track")} className="cursor-pointer text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 px-3 py-2.5 rounded-xl transition-colors shadow-sm flex items-center gap-1.5 active:scale-95">
+              <span className="text-base">📦</span> ติดตามออเดอร์
+            </button>
+            <button onClick={() => router.push("/")} className="cursor-pointer text-xs font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 px-3 py-2.5 rounded-xl transition-colors">
+              🏠 แอดมิน
+            </button>
+          </div>
         </div>
       </header>
 
@@ -231,7 +253,6 @@ export default function CustomerStorefront() {
               <div key={product.id} onClick={() => addToCart(product)} className={`bg-white rounded-2xl shadow-sm border ${product.stock_qty <= 0 ? 'border-gray-200 opacity-60' : 'border-gray-100 hover:border-blue-400 cursor-pointer'} overflow-hidden flex flex-col active:scale-95 transition-all group`}>
                 <div className="relative aspect-square bg-gray-50 p-4 flex items-center justify-center">
                   {product.image_url ? <img src={product.image_url} alt={product.name} className="w-full h-full object-cover rounded-xl" /> : <div className="text-gray-300 text-4xl">No Image</div>}
-                  {/* 🛠️ ป้ายกำกับถ้าสินค้าหมด */}
                   {product.stock_qty <= 0 && <div className="absolute inset-0 bg-white/70 backdrop-blur-sm flex items-center justify-center"><span className="bg-red-600 text-white px-4 py-1.5 rounded-full font-bold text-sm shadow-md">สินค้าหมด</span></div>}
                 </div>
                 <div className="p-4 flex-1 flex flex-col">
