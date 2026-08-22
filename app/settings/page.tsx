@@ -1,15 +1,43 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
-interface StoreSettings { id: string; phone_number: string; tax_id: string; promptpay_number: string; invoice_title: string; receipt_title: string; receipt_footer: string; }
+// 1. เพิ่ม name, address และ logo_url เข้าไปใน Interface
+interface StoreSettings { 
+  id: string; 
+  name: string;
+  address: string;
+  logo_url: string;
+  phone_number: string; 
+  tax_id: string; 
+  promptpay_number: string; 
+  invoice_title: string; 
+  receipt_title: string; 
+  receipt_footer: string; 
+}
 
 export default function SettingsPage() {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const [loading, setLoading] = useState(true);
-  const [settings, setSettings] = useState<StoreSettings>({ id: "", phone_number: "", tax_id: "", promptpay_number: "", invoice_title: "ใบแจ้งหนี้", receipt_title: "ใบเสร็จรับเงิน", receipt_footer: "ขอขอบคุณที่มาอุดหนุนและใช้บริการ" });
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  
+  const [settings, setSettings] = useState<StoreSettings>({ 
+    id: "", 
+    name: "",
+    address: "",
+    logo_url: "",
+    phone_number: "", 
+    tax_id: "", 
+    promptpay_number: "", 
+    invoice_title: "ใบแจ้งหนี้", 
+    receipt_title: "ใบเสร็จรับเงิน", 
+    receipt_footer: "ขอขอบคุณที่มาอุดหนุนและใช้บริการ" 
+  });
+  
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState("");
   const [isResetting, setIsResetting] = useState(false);
@@ -17,43 +45,91 @@ export default function SettingsPage() {
   useEffect(() => {
     let isMounted = true;
     const fetchSettings = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push("/login"); return; }
-      const { data: profile } = await supabase.from("profiles").select("store_id").eq("id", user.id).single();
-      if (profile?.store_id && isMounted) {
-        const { data } = await supabase.from("stores").select("*").eq("id", profile.store_id).single();
-        if (data) setSettings(data);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { router.push("/login"); return; }
+        
+        // ตรวจสอบสิทธิ์ (Role) เพื่อความปลอดภัย
+        const { data: profile } = await supabase.from("profiles").select("store_id, role").eq("id", user.id).single();
+        
+        if (profile?.store_id && isMounted) {
+          const { data } = await supabase.from("stores").select("*").eq("id", profile.store_id).single();
+          if (data) setSettings(data);
+        }
+      } catch (error) {
+        console.error("Error fetching settings:", error);
+      } finally {
+        if (isMounted) setLoading(false);
       }
-      if (isMounted) setLoading(false);
     };
     fetchSettings();
     return () => { isMounted = false; };
   }, [router]);
 
+  // ฟังก์ชันอัปโหลดโลโก้
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setIsUploading(true);
+    try {
+      // อัปโหลดไฟล์ไปที่ Supabase Storage (ต้องสร้าง Bucket ชื่อ 'store_assets' ไว้ใน Supabase ก่อนนะครับ)
+      const fileExt = file.name.split('.').pop();
+      const fileName = `logo_${settings.id}_${Math.random()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from('store_assets').upload(fileName, file);
+      
+      if (uploadError) throw uploadError;
+      
+      // ดึง URL รูปภาพมาแสดงผล
+      const { data: publicUrlData } = supabase.storage.from('store_assets').getPublicUrl(fileName);
+      setSettings({ ...settings, logo_url: publicUrlData.publicUrl });
+      
+    } catch (error) {
+      alert("เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ กรุณาลองใหม่");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // ฟังก์ชันลบโลโก้
+  const handleRemoveLogo = () => {
+    setSettings({ ...settings, logo_url: "" });
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      await supabase.from("stores").update({ phone_number: settings.phone_number, tax_id: settings.tax_id, promptpay_number: settings.promptpay_number, invoice_title: settings.invoice_title, receipt_title: settings.receipt_title, receipt_footer: settings.receipt_footer }).eq("id", settings.id);
+      // อัปเดตข้อมูลทั้งหมดรวมถึง ชื่อ, ที่อยู่ และ โลโก้
+      await supabase.from("stores").update({ 
+        name: settings.name,
+        address: settings.address,
+        logo_url: settings.logo_url,
+        phone_number: settings.phone_number, 
+        tax_id: settings.tax_id, 
+        promptpay_number: settings.promptpay_number, 
+        invoice_title: settings.invoice_title, 
+        receipt_title: settings.receipt_title, 
+        receipt_footer: settings.receipt_footer 
+      }).eq("id", settings.id);
       alert("บันทึกการตั้งค่าเรียบร้อยแล้ว");
-    } catch { alert("เกิดข้อผิดพลาดในการบันทึก"); } finally { setIsSaving(false); }
+    } catch { 
+      alert("เกิดข้อผิดพลาดในการบันทึก"); 
+    } finally { 
+      setIsSaving(false); 
+    }
   };
 
   const handleFactoryReset = async () => {
     if (resetConfirmText !== "ยืนยัน") { alert("กรุณาพิมพ์คำว่า 'ยืนยัน' ให้ถูกต้อง"); return; }
     setIsResetting(true);
     try {
-      // ล้างข้อมูลบิลและการขาย
       await supabase.from("order_items").delete().neq("id", "00000000-0000-0000-0000-000000000000");
       await supabase.from("orders").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      
-      // ล้างข้อมูลคลังสินค้าและ Stock Card
       await supabase.from("inventory_transactions").delete().neq("id", "00000000-0000-0000-0000-000000000000");
       await supabase.from("inventory_lots").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      
-      // รีเซ็ตยอดสต๊อกสินค้าทั้งหมดให้เป็น 0
       await supabase.from("products").update({ stock_qty: 0 }).neq("id", "00000000-0000-0000-0000-000000000000");
-
       alert("ล้างประวัติการขายและสต๊อกสินค้าเรียบร้อยแล้ว");
       setShowResetModal(false);
       setResetConfirmText("");
@@ -71,16 +147,64 @@ export default function SettingsPage() {
         </div>
 
         <form onSubmit={handleSave} className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-gray-100 space-y-6">
+          
+          {/* ส่วนที่ 1: ข้อมูลบริษัทและโลโก้ */}
+          <div className="border-b border-gray-100 pb-6 space-y-6">
+            <h2 className="text-lg font-black text-gray-800">ข้อมูลสถานประกอบการ</h2>
+            
+            {/* อัปโหลดโลโก้ */}
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-3">โลโก้ร้าน / บริษัท (แสดงบนใบเสร็จและหน้าจอ)</label>
+              <div className="flex items-center gap-4">
+                <div className="w-24 h-24 bg-gray-100 border-2 border-dashed border-gray-300 rounded-2xl flex items-center justify-center overflow-hidden shrink-0">
+                  {settings.logo_url ? (
+                    <img src={settings.logo_url} alt="Store Logo" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-gray-400 text-3xl">🖼️</span>
+                  )}
+                </div>
+                <div className="space-y-2 flex-1">
+                  <input type="file" accept="image/*" ref={fileInputRef} onChange={handleLogoUpload} className="hidden" />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-4 py-2 bg-blue-50 text-blue-600 font-bold rounded-xl hover:bg-blue-100 transition-colors">
+                      {isUploading ? "กำลังอัปโหลด..." : "เลือกรูปภาพ"}
+                    </button>
+                    {settings.logo_url && (
+                      <button type="button" onClick={handleRemoveLogo} className="px-4 py-2 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors">ลบโลโก้</button>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500">แนะนำขนาด 512x512 px นามสกุล .png หรือ .jpg</p>
+                </div>
+              </div>
+            </div>
+
+            {/* ชื่อร้าน และ ที่อยู่ */}
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">ชื่อร้าน หรือ ชื่อบริษัทจดทะเบียน</label>
+              <input type="text" placeholder="เช่น บริษัท นำพาความสุข จำกัด" value={settings.name || ""} onChange={(e) => setSettings({...settings, name: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl outline-none" required />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">ที่อยู่สถานประกอบการ</label>
+              <textarea rows={3} placeholder="เช่น แขวงออเงิน เขตสายไหม กรุงเทพมหานคร" value={settings.address || ""} onChange={(e) => setSettings({...settings, address: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl outline-none resize-none" required />
+            </div>
+          </div>
+
+          {/* ส่วนที่ 2: ข้อมูลการติดต่อและภาษี */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div><label className="block text-sm font-bold text-gray-700 mb-2">เบอร์โทรศัพท์ (แสดงบนใบเสร็จ)</label><input type="text" value={settings.phone_number || ""} onChange={(e) => setSettings({...settings, phone_number: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl outline-none" /></div>
             <div><label className="block text-sm font-bold text-gray-700 mb-2">เลขประจำตัวผู้เสียภาษี</label><input type="text" value={settings.tax_id || ""} onChange={(e) => setSettings({...settings, tax_id: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl outline-none" /></div>
           </div>
+          
+          {/* ส่วนที่ 3: การเงิน */}
           <div><label className="block text-sm font-bold text-green-700 mb-2">PromptPay สำหรับรับเงิน</label><input type="text" value={settings.promptpay_number || ""} onChange={(e) => setSettings({...settings, promptpay_number: e.target.value})} className="w-full p-3 border-2 border-green-400 rounded-xl outline-none" /></div>
+          
+          {/* ส่วนที่ 4: ใบเสร็จ */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div><label className="block text-sm font-bold text-gray-700 mb-2">หัวข้อ: บิลก่อนจ่ายเงิน (Draft)</label><input type="text" value={settings.invoice_title || ""} onChange={(e) => setSettings({...settings, invoice_title: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl outline-none" /></div>
             <div><label className="block text-sm font-bold text-gray-700 mb-2">หัวข้อ: บิลหลังจ่ายเงิน (Receipt)</label><input type="text" value={settings.receipt_title || ""} onChange={(e) => setSettings({...settings, receipt_title: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl outline-none" /></div>
           </div>
           <div><label className="block text-sm font-bold text-gray-700 mb-2">ข้อความท้ายใบเสร็จ (ถาวร)</label><input type="text" value={settings.receipt_footer || ""} onChange={(e) => setSettings({...settings, receipt_footer: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl outline-none" /></div>
+          
           <button type="submit" disabled={isSaving} className="cursor-pointer w-full py-4 bg-gray-900 hover:bg-black text-white rounded-xl font-bold text-lg shadow-md transition-all">{isSaving ? "กำลังบันทึก..." : "บันทึกการตั้งค่าระบบ"}</button>
         </form>
 
