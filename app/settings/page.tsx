@@ -72,11 +72,11 @@ export default function SettingsPage() {
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `logo_${settings.id}_${Math.random()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('store_assets').upload(fileName, file);
+      const { error: uploadError } = await supabase.storage.from('uploads').upload(fileName, file);
       
       if (uploadError) throw uploadError;
       
-      const { data: publicUrlData } = supabase.storage.from('store_assets').getPublicUrl(fileName);
+      const { data: publicUrlData } = supabase.storage.from('uploads').getPublicUrl(fileName);
       setSettings({ ...settings, logo_url: publicUrlData.publicUrl });
       
     } catch (error) {
