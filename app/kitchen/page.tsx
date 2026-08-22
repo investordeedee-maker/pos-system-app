@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
@@ -26,11 +26,37 @@ export default function KitchenDisplayPage() {
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [storeId, setStoreId] = useState<string | null>(null);
 
+  // แยกฟังก์ชันดึงข้อมูลออกมา เพื่อให้เรียกใช้ได้เฉพาะตอนที่จำเป็น
+  const fetchOrders = useCallback(async (currentStoreId: string) => {
+    try {
+      const today = new Date().toISOString().split("T")[0];
+      
+      const { data, error } = await supabase
+        .from("orders")
+        .select(`*, order_items(*, products(name))`)
+        .eq("store_id", currentStoreId)
+        .eq("kitchen_status", "pending")
+        .gte("created_at", today)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+      if (data) {
+        // กรองไม่ให้บิลออนไลน์ที่ยังไม่ได้ตรวจสลิป (status = pending) แสดงผล
+        const validOrders = data.filter(o => !(o.order_source === 'ONLINE' && o.status === 'pending'));
+        setOrders(validOrders);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
+  // ทำงานครั้งแรกเมื่อเปิดหน้าจอ
   useEffect(() => {
     let isMounted = true;
     
-    const fetchOrders = async () => {
+    const initFetch = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
@@ -38,21 +64,9 @@ export default function KitchenDisplayPage() {
         const { data: profile } = await supabase.from("profiles").select("store_id").eq("id", user.id).single();
         if (!profile?.store_id) return;
 
-        const today = new Date().toISOString().split("T")[0];
-        
-        const { data, error } = await supabase
-          .from("orders")
-          .select(`*, order_items(*, products(name))`)
-          .eq("store_id", profile.store_id)
-          .eq("kitchen_status", "pending")
-          .gte("created_at", today)
-          .order("created_at", { ascending: true });
-
-        if (error) throw error;
-        if (data && isMounted) {
-          // กรองไม่ให้บิลออนไลน์ที่ยังไม่ได้ตรวจสลิป (status = pending) แสดงผล
-          const validOrders = data.filter(o => !(o.order_source === 'ONLINE' && o.status === 'pending'));
-          setOrders(validOrders);
+        if (isMounted) {
+          setStoreId(profile.store_id);
+          await fetchOrders(profile.store_id);
         }
       } catch (err) {
         console.error(err);
@@ -61,14 +75,28 @@ export default function KitchenDisplayPage() {
       }
     };
 
-    fetchOrders();
-    const interval = setInterval(fetchOrders, 3000);
-    
+    initFetch();
+    return () => { isMounted = false; };
+  }, [fetchOrders]);
+
+  // ระบบ Real-time แบบใหม่ (ไม่ใช้ setInterval ดึงทุก 3 วินาทีแล้ว เพื่อประหยัด Egress)
+  useEffect(() => {
+    if (!storeId) return;
+
+    // ดักจับการเปลี่ยนแปลงในตาราง orders เฉพาะร้านนี้
+    const channel = supabase.channel('kitchen_realtime_channel')
+      .on('postgres_changes', 
+          { event: '*', schema: 'public', table: 'orders', filter: `store_id=eq.${storeId}` }, 
+          () => {
+            // เมื่อมีออเดอร์เข้าใหม่ หรือเปลี่ยนสถานะ ค่อยดึงข้อมูลใหม่ 1 ครั้ง
+            fetchOrders(storeId);
+          }
+      ).subscribe();
+
     return () => {
-      isMounted = false;
-      clearInterval(interval);
+      supabase.removeChannel(channel);
     };
-  }, []);
+  }, [storeId, fetchOrders]);
 
   useEffect(() => {
     const handleFullscreenChange = () => { setIsFullscreen(!!document.fullscreenElement); };
@@ -87,7 +115,7 @@ export default function KitchenDisplayPage() {
   const markAsDone = async (orderId: string) => {
     try {
       await supabase.from("orders").update({ kitchen_status: "ready" }).eq("id", orderId);
-      setOrders(prev => prev.filter(o => o.id !== orderId));
+      // เมื่ออัปเดตสำเร็จ Real-time จะทำงานและรีเฟรชหน้าจอเองอัตโนมัติ
     } catch {
       alert("เกิดข้อผิดพลาดในการอัปเดตสถานะ");
     }
