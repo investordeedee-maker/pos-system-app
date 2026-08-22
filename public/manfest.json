@@ -1,7 +1,7 @@
 {
   "name": "J-POS",
   "short_name": "J-POS",
-  "display": "fullscreen",
+  "display": "",
   "start_url": "/store",
   "background_color": "#ffffff",
   "theme_color": "#2563eb",
@@ -12,7 +12,7 @@
       "type": "image/png"
     },
     {
-      "src": "/images/icon-512x512.png",
+      "src": "/logo.png",
       "sizes": "512x512",
       "type": "image/png"
     }
