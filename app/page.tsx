@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase";
 
@@ -7,62 +7,65 @@ export default function Home() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [storeName, setStoreName] = useState("POS System");
+  const [storeId, setStoreId] = useState("");
   
   const [todayRevenue, setTodayRevenue] = useState(0);
   const [onlinePendingCount, setOnlinePendingCount] = useState(0);
   const [storePendingCount, setStorePendingCount] = useState(0);
   const [kitchenCount, setKitchenCount] = useState(0);
-  const [unreadChatCount, setUnreadChatCount] = useState(0); // นับจำนวนข้อความใหม่ที่ยังไม่อ่าน
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
 
+  // แยกฟังก์ชันดึงข้อมูลออกมาเพื่อให้เรียกใช้ซ้ำได้ง่ายเวลาหน้าจอ Sync กัน
+  const fetchStats = useCallback(async (currentStoreId: string) => {
+    const today = new Date().toISOString().split("T")[0];
+    
+    // 1. ดึงสถิติรายได้
+    const { data: todayOrders } = await supabase
+      .from("orders")
+      .select("total_amount")
+      .eq("store_id", currentStoreId)
+      .eq("status", "completed")
+      .gte("created_at", today);
+    
+    if (todayOrders) {
+      setTodayRevenue(todayOrders.reduce((sum, o) => sum + o.total_amount, 0));
+    }
+
+    // 2. ดึงจำนวนออเดอร์ค้างทั้งหมดเพื่อแยกประเภท
+    const { data: activeOrders } = await supabase
+      .from("orders")
+      .select("status, order_source, kitchen_status")
+      .eq("store_id", currentStoreId)
+      .or("status.in.(pending,processing),kitchen_status.eq.pending");
+    
+    if (activeOrders) {
+      setOnlinePendingCount(activeOrders.filter(o => o.status === "pending" && o.order_source === "ONLINE").length);
+      setStorePendingCount(activeOrders.filter(o => o.status === "pending" && o.order_source !== "ONLINE").length);
+      setKitchenCount(activeOrders.filter(o => 
+        o.kitchen_status === "pending" && 
+        !(o.status === "pending" && o.order_source === "ONLINE")
+      ).length);
+    }
+
+    // 3. ดึงข้อความแชทลูกค้าทั้งหมดเพื่อคำนวณ Unread
+    const { data: recentChats } = await supabase
+      .from("order_messages")
+      .select("order_id, created_at, sender_type")
+      .eq("sender_type", "CUSTOMER");
+    
+    if (recentChats) {
+      // โหลดประวัติการอ่านล่าสุดจากเบราว์เซอร์
+      const readMap = JSON.parse(localStorage.getItem('store_read_timestamps') || '{}');
+      const unreadCount = recentChats.filter(m => 
+          !readMap[m.order_id] || new Date(m.created_at) > new Date(readMap[m.order_id])
+      ).length;
+      setUnreadChatCount(unreadCount);
+    }
+  }, []);
+
+  // โหลดข้อมูลครั้งแรก
   useEffect(() => {
     let isMounted = true;
-    let storeIdStr = "";
-
-    const fetchStats = async (currentStoreId: string) => {
-      const today = new Date().toISOString().split("T")[0];
-      
-      const { data: todayOrders } = await supabase
-        .from("orders")
-        .select("total_amount")
-        .eq("store_id", currentStoreId)
-        .eq("status", "completed")
-        .gte("created_at", today);
-      
-      if (todayOrders && isMounted) {
-        setTodayRevenue(todayOrders.reduce((sum, o) => sum + o.total_amount, 0));
-      }
-
-      const { data: activeOrders } = await supabase
-        .from("orders")
-        .select("status, order_source, kitchen_status")
-        .eq("store_id", currentStoreId)
-        .or("status.in.(pending,processing),kitchen_status.eq.pending");
-      
-      if (activeOrders && isMounted) {
-        setOnlinePendingCount(activeOrders.filter(o => o.status === "pending" && o.order_source === "ONLINE").length);
-        setStorePendingCount(activeOrders.filter(o => o.status === "pending" && o.order_source !== "ONLINE").length);
-        setKitchenCount(activeOrders.filter(o => 
-          o.kitchen_status === "pending" && 
-          !(o.status === "pending" && o.order_source === "ONLINE")
-        ).length);
-      }
-
-      // ดึงข้อความแชทลูกค้าทั้งหมดเพื่อคำนวณ Unread
-      const { data: recentChats } = await supabase
-        .from("order_messages")
-        .select("order_id, created_at, sender_type")
-        .eq("sender_type", "CUSTOMER");
-      
-      if (recentChats && isMounted) {
-        const readMap = JSON.parse(localStorage.getItem('store_read_timestamps') || '{}');
-        // กรองเฉพาะข้อความที่เวลายังใหม่กว่าเวลาที่เรากดเปิดอ่านล่าสุด
-        const unreadCount = recentChats.filter(m => 
-            !readMap[m.order_id] || new Date(m.created_at) > new Date(readMap[m.order_id])
-        ).length;
-        setUnreadChatCount(unreadCount);
-      }
-    };
-
     const checkAuthAndFetchData = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
@@ -70,7 +73,7 @@ export default function Home() {
         
         const { data: profile } = await supabase.from("profiles").select("store_id").eq("id", user.id).single();
         if (profile?.store_id) {
-          storeIdStr = profile.store_id;
+          if (isMounted) setStoreId(profile.store_id);
           const { data: storeData } = await supabase.from("stores").select("name").eq("id", profile.store_id).single();
           if (storeData && isMounted) setStoreName(storeData.name);
 
@@ -80,23 +83,42 @@ export default function Home() {
     };
 
     checkAuthAndFetchData();
+    return () => { isMounted = false; };
+  }, [fetchStats, router]);
 
+  // ระบบ Sync อัตโนมัติข้ามหน้าต่างและ Real-time Database
+  useEffect(() => {
+    if (!storeId) return;
+
+    const handleUpdate = () => {
+      fetchStats(storeId);
+    };
+
+    // อัปเดตทันทีเมื่อสลับแท็บกลับมา หรือมีการกดอ่านข้อความจากแท็บอื่น (Storage Change)
+    window.addEventListener('focus', handleUpdate);
+    window.addEventListener('visibilitychange', () => {
+      if (!document.hidden) handleUpdate();
+    });
+    window.addEventListener('storage', handleUpdate);
+
+    // ดักจับฐานข้อมูลแบบ Real-time
     const orderChannel = supabase.channel('home_orders_channel')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
-        if (storeIdStr) fetchStats(storeIdStr);
-      }).subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, handleUpdate)
+      .subscribe();
       
     const chatChannel = supabase.channel('home_chats_channel')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_messages' }, () => {
-        if (storeIdStr) fetchStats(storeIdStr);
-      }).subscribe();
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_messages' }, handleUpdate)
+      .subscribe();
 
     return () => { 
-      isMounted = false; 
+      // ล้างระบบคืนความจำเมื่อปิดหน้าจอ
+      window.removeEventListener('focus', handleUpdate);
+      window.removeEventListener('visibilitychange', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
       supabase.removeChannel(orderChannel);
       supabase.removeChannel(chatChannel);
     };
-  }, [router]);
+  }, [storeId, fetchStats]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -109,6 +131,7 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50 p-6 md:p-12 font-sans flex flex-col items-center">
       <div className="w-full max-w-7xl space-y-8">
         
+        {/* Header */}
         <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
             <p className="text-sm font-bold text-blue-600 mb-1">ยินดีต้อนรับสู่ระบบ</p>
@@ -119,6 +142,7 @@ export default function Home() {
           </button>
         </div>
 
+        {/* Quick Stats Widget */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-6 rounded-3xl text-white shadow-lg">
             <p className="text-sm font-medium text-blue-100 mb-1">ยอดขายสำเร็จ (วันนี้)</p>
@@ -140,12 +164,14 @@ export default function Home() {
             <p className="text-3xl lg:text-4xl font-black">{kitchenCount} <span className="text-lg font-normal">รายการ</span></p>
           </div>
 
+          {/* กล่องที่ 5: แชทลูกค้าออนไลน์ใหม่ */}
           <div onClick={() => router.push("/orders")} className={`cursor-pointer p-6 rounded-3xl text-white shadow-lg transition-transform hover:scale-105 active:scale-95 ${unreadChatCount > 0 ? "bg-gradient-to-br from-pink-500 to-rose-500 animate-pulse" : "bg-gradient-to-br from-gray-400 to-gray-500"}`}>
             <p className="text-sm font-medium text-pink-100 mb-1">ข้อความใหม่ (แชท)</p>
             <p className="text-3xl lg:text-4xl font-black">{unreadChatCount} <span className="text-lg font-normal">ข้อความ</span></p>
           </div>
         </div>
 
+        {/* Main Menu Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <button onClick={() => router.push("/pos")} className="cursor-pointer flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-300 transition-all text-left group">
             <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">🛒</div>
@@ -205,5 +231,5 @@ export default function Home() {
         
      </div>
     </div>
- );
+  );
 }
