@@ -14,6 +14,12 @@ interface OrderItem {
   };
 }
 
+interface OrderMessage {
+  id: string;
+  sender_type: string;
+  created_at: string;
+}
+
 interface Order {
   id: string;
   doc_no: string;
@@ -27,6 +33,7 @@ interface Order {
   customer_name?: string;
   customer_phone?: string;
   order_items: OrderItem[];
+  order_messages?: OrderMessage[];
 }
 
 interface ChatMessage {
@@ -42,11 +49,23 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [filter, setFilter] = useState<"all" | "pending" | "processing" | "shipped" | "completed">("all");
 
-  // ระบบแชท
+  // ระบบแชท และ อ่านข้อความ
   const [activeChatOrder, setActiveChatOrder] = useState<Order | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [readTimestamps, setReadTimestamps] = useState<Record<string, string>>({});
+
+  // โหลดเวลาการอ่านข้อความล่าสุด (ใช้ setTimeout ป้องกัน cascading renders)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const stored = localStorage.getItem('store_read_timestamps');
+      if (stored) {
+        setReadTimestamps(JSON.parse(stored));
+      }
+    }, 50);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -65,10 +84,14 @@ export default function OrdersPage() {
           .single();
 
         if (profile?.store_id && isMounted) {
-          // ดึงเฉพาะออเดอร์ ONLINE เท่านั้น
+          // ดึงเฉพาะออเดอร์ ONLINE และพ่วงข้อมูลแชทมาเช็คด้วย
           const { data, error } = await supabase
             .from("orders")
-            .select(`*, order_items (*, products (name))`)
+            .select(`
+              *, 
+              order_items (*, products (name)),
+              order_messages (id, sender_type, created_at)
+            `)
             .eq("store_id", profile.store_id)
             .eq("order_source", "ONLINE")
             .order("created_at", { ascending: false });
@@ -86,7 +109,26 @@ export default function OrdersPage() {
     };
 
     fetchOrders();
-    return () => { isMounted = false; };
+
+    // ฟังการแจ้งเตือนแชทเข้าแบบ Real-time เพื่อดันแจ้งเตือน
+    const globalChatChannel = supabase.channel('global_chat_updates')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_messages' }, 
+        (payload) => {
+          if (isMounted) {
+            setOrders(prev => prev.map(o => {
+              if (o.id === payload.new.order_id) {
+                return { ...o, order_messages: [...(o.order_messages || []), payload.new as OrderMessage] };
+              }
+              return o;
+            }));
+          }
+        }
+      ).subscribe();
+
+    return () => { 
+      isMounted = false; 
+      supabase.removeChannel(globalChatChannel);
+    };
   }, [router]);
 
   // ค้นหาแชทเมื่อเปิดหน้าต่าง
@@ -118,6 +160,20 @@ export default function OrdersPage() {
     };
   }, [activeChatOrder]);
 
+  // อัปเดตเวลาเปิดอ่านแชท (ใช้ setTimeout + callback update)
+  useEffect(() => {
+    if (activeChatOrder && messages.length > 0) {
+      const timer = setTimeout(() => {
+        setReadTimestamps((prev) => {
+          const newTimestamps = { ...prev, [activeChatOrder.id]: new Date().toISOString() };
+          localStorage.setItem('store_read_timestamps', JSON.stringify(newTimestamps));
+          return newTimestamps;
+        });
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [messages, activeChatOrder]);
+
   const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); };
   useEffect(() => { scrollToBottom(); }, [messages]);
 
@@ -133,7 +189,13 @@ export default function OrdersPage() {
         .update({ status: newStatus })
         .eq("id", orderId);
         
-      if (error) throw error;
+      if (error) {
+        if (error.message.includes('check constraint')) {
+          alert("❌ เปลี่ยนสถานะไม่ได้! \n\nฐานข้อมูลถูกล็อคเอาไว้ กรุณาไปที่หน้าเว็บ Supabase -> SQL Editor และรันคำสั่งนี้ครับ:\n\nALTER TABLE public.orders DROP CONSTRAINT IF EXISTS orders_status_check;");
+          return;
+        }
+        throw error;
+      }
       
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
       if(activeChatOrder && activeChatOrder.id === orderId) {
@@ -163,7 +225,15 @@ export default function OrdersPage() {
     }
   };
 
-  // ฟังก์ชันช่วยแปลสถานะ
+  const openChat = (order: Order) => {
+    setActiveChatOrder(order);
+    setReadTimestamps((prev) => {
+      const newTimestamps = { ...prev, [order.id]: new Date().toISOString() };
+      localStorage.setItem('store_read_timestamps', JSON.stringify(newTimestamps));
+      return newTimestamps;
+    });
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "pending": return <span className="text-xs font-bold px-3 py-1 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200 shadow-sm">รอรับออเดอร์</span>;
@@ -185,7 +255,6 @@ export default function OrdersPage() {
             <p className="text-sm text-gray-500 mt-1 font-medium">จัดการสถานะจัดส่ง และแชทพูดคุยกับลูกค้าออนไลน์</p>
           </div>
           <div className="flex gap-3 w-full md:w-auto">
-            {/* เปลี่ยนเป็นปุ่มกลับหน้า Home */}
             <button onClick={() => router.push("/")} className="cursor-pointer flex-1 md:flex-none bg-blue-900 hover:bg-blue-800 text-white px-6 py-3 rounded-xl font-bold shadow-md transition-all active:scale-95 flex items-center justify-center gap-2">
               🏠 กลับหน้าหลัก (Home)
             </button>
@@ -218,65 +287,78 @@ export default function OrdersPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredOrders.map(order => (
-              <div key={order.id} className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden flex flex-col transition-all hover:shadow-lg group">
-                <div className="p-5 flex justify-between items-center border-b border-gray-50 bg-gray-50/50">
-                  <div>
-                    <h3 className="font-black text-lg text-gray-800">{order.doc_no}</h3>
-                    <p className="text-xs font-bold text-gray-400 mt-0.5">{new Date(order.created_at).toLocaleString('th-TH')}</p>
-                  </div>
-                  <div className="flex flex-col items-end gap-2">
-                    {getStatusBadge(order.status)}
-                  </div>
-                </div>
-                
-                <div className="p-5 flex-1 bg-white">
-                  {order.delivery_address && (
-                    <div className="mb-4 p-3 bg-blue-50/50 border border-blue-100 rounded-xl text-sm">
-                      <span className="font-bold text-blue-800 text-xs uppercase block mb-1">📍 ที่อยู่จัดส่ง:</span>
-                      <p className="text-gray-700 font-medium whitespace-pre-wrap leading-relaxed">{order.delivery_address}</p>
-                      {order.customer_name && <p className="text-xs text-gray-500 mt-2 font-bold">👤 {order.customer_name} {order.customer_phone ? `(${order.customer_phone})` : ''}</p>}
+            {filteredOrders.map(order => {
+              // คำนวณหาจำนวนข้อความที่ยังไม่ได้เปิดอ่าน ของบิลนี้
+              const unreadCount = order.order_messages?.filter(m => 
+                m.sender_type === "CUSTOMER" && 
+                (!readTimestamps[order.id] || new Date(m.created_at) > new Date(readTimestamps[order.id]))
+              ).length || 0;
+
+              return (
+                <div key={order.id} className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden flex flex-col transition-all hover:shadow-lg group">
+                  <div className="p-5 flex justify-between items-center border-b border-gray-50 bg-gray-50/50">
+                    <div>
+                      <h3 className="font-black text-lg text-gray-800">{order.doc_no}</h3>
+                      <p className="text-xs font-bold text-gray-400 mt-0.5">{new Date(order.created_at).toLocaleString('th-TH')}</p>
                     </div>
-                  )}
-
-                  <div className="space-y-3 mb-2">
-                    <span className="font-bold text-gray-400 text-xs uppercase block">รายการสินค้า:</span>
-                    {order.order_items.map((item, idx) => (
-                      <div key={idx} className="flex flex-col text-sm border-b border-gray-50 pb-2 last:border-0 last:pb-0">
-                        <div className="flex justify-between items-start">
-                          <span className="text-gray-700 font-bold">
-                            <span className="text-blue-600 mr-1.5">{item.qty}x</span> 
-                            {item.products?.name || "สินค้า"}
-                          </span>
-                          <span className="font-black text-gray-800">{(item.unit_price * item.qty).toLocaleString()} ฿</span>
-                        </div>
-                        {item.remark && (
-                          <div className="bg-orange-50 text-orange-600 p-2 rounded-lg mt-1.5 text-xs font-bold border border-orange-100 w-fit">
-                            💬 {item.remark}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="p-5 bg-gray-50 border-t border-gray-100">
-                  <div className="flex justify-between items-end mb-4 bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
-                    <span className="text-gray-500 font-bold text-sm">ยอดรวมทั้งสิ้น</span>
-                    <span className="text-2xl font-black text-blue-600">{order.total_amount.toLocaleString()} ฿</span>
+                    <div className="flex flex-col items-end gap-2">
+                      {getStatusBadge(order.status)}
+                    </div>
                   </div>
                   
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={() => setActiveChatOrder(order)} 
-                      className="cursor-pointer w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition-all shadow-md shadow-blue-600/20 flex items-center justify-center gap-2 active:scale-95"
-                    >
-                      💬 อัปเดตสถานะ / แชท
-                    </button>
+                  <div className="p-5 flex-1 bg-white">
+                    {order.delivery_address && (
+                      <div className="mb-4 p-3 bg-blue-50/50 border border-blue-100 rounded-xl text-sm">
+                        <span className="font-bold text-blue-800 text-xs uppercase block mb-1">📍 ที่อยู่จัดส่ง:</span>
+                        <p className="text-gray-700 font-medium whitespace-pre-wrap leading-relaxed">{order.delivery_address}</p>
+                        {order.customer_name && <p className="text-xs text-gray-500 mt-2 font-bold">👤 {order.customer_name} {order.customer_phone ? `(${order.customer_phone})` : ''}</p>}
+                      </div>
+                    )}
+
+                    <div className="space-y-3 mb-2">
+                      <span className="font-bold text-gray-400 text-xs uppercase block">รายการสินค้า:</span>
+                      {order.order_items.map((item, idx) => (
+                        <div key={idx} className="flex flex-col text-sm border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                          <div className="flex justify-between items-start">
+                            <span className="text-gray-700 font-bold">
+                              <span className="text-blue-600 mr-1.5">{item.qty}x</span> 
+                              {item.products?.name || "สินค้า"}
+                            </span>
+                            <span className="font-black text-gray-800">{(item.unit_price * item.qty).toLocaleString()} ฿</span>
+                          </div>
+                          {item.remark && (
+                            <div className="bg-orange-50 text-orange-600 p-2 rounded-lg mt-1.5 text-xs font-bold border border-orange-100 w-fit">
+                              💬 {item.remark}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="p-5 bg-gray-50 border-t border-gray-100">
+                    <div className="flex justify-between items-end mb-4 bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+                      <span className="text-gray-500 font-bold text-sm">ยอดรวมทั้งสิ้น</span>
+                      <span className="text-2xl font-black text-blue-600">{order.total_amount.toLocaleString()} ฿</span>
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => openChat(order)} 
+                        className={`relative cursor-pointer w-full font-bold py-3.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 active:scale-95 ${unreadCount > 0 ? 'bg-rose-500 hover:bg-rose-600 text-white shadow-rose-500/30 animate-pulse' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20'}`}
+                      >
+                        💬 อัปเดตสถานะ / แชท
+                        {unreadCount > 0 && (
+                          <span className="absolute -top-2 -right-2 bg-red-600 text-white border-2 border-white text-xs font-black w-7 h-7 flex items-center justify-center rounded-full shadow-md">
+                            {unreadCount}
+                          </span>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -286,7 +368,6 @@ export default function OrdersPage() {
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] overflow-hidden animate-fade-in-up border border-gray-100">
             
-            {/* Modal Header */}
             <div className="bg-gradient-to-r from-blue-900 to-indigo-800 p-5 flex justify-between items-center z-10 shadow-md shrink-0">
               <div>
                 <h3 className="text-xl font-black text-white flex items-center gap-2">
@@ -298,7 +379,6 @@ export default function OrdersPage() {
               </button>
             </div>
 
-            {/* ส่วนควบคุมสถานะออเดอร์ */}
             <div className="p-4 bg-gray-50 border-b border-gray-200 flex gap-2 overflow-x-auto scrollbar-hide shrink-0 shadow-inner">
               <button onClick={() => updateOrderStatus(activeChatOrder.id, 'processing')} className={`cursor-pointer px-5 py-2.5 rounded-xl font-bold text-sm whitespace-nowrap transition-all active:scale-95 ${activeChatOrder.status === 'processing' ? 'bg-blue-600 text-white shadow-md border-blue-600' : 'bg-white border border-gray-300 text-gray-600 hover:bg-blue-50'}`}>
                 📦 1. จัดเตรียม
@@ -311,7 +391,6 @@ export default function OrdersPage() {
               </button>
             </div>
 
-            {/* พื้นที่แชท */}
             <div className="flex-1 overflow-y-auto p-5 bg-gray-50/80 space-y-4">
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-gray-400">
@@ -338,7 +417,6 @@ export default function OrdersPage() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* ช่องพิมพ์ข้อความ */}
             <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-gray-100 flex gap-3 shrink-0 shadow-[0_-10px_20px_rgba(0,0,0,0.02)]">
               <input 
                 type="text" 

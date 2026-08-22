@@ -12,7 +12,7 @@ export default function Home() {
   const [onlinePendingCount, setOnlinePendingCount] = useState(0);
   const [storePendingCount, setStorePendingCount] = useState(0);
   const [kitchenCount, setKitchenCount] = useState(0);
-  const [chatCount, setChatCount] = useState(0); // กล่องที่ 5 แจ้งเตือนแชท
+  const [unreadChatCount, setUnreadChatCount] = useState(0); // นับจำนวนข้อความใหม่ที่ยังไม่อ่าน
 
   useEffect(() => {
     let isMounted = true;
@@ -21,7 +21,6 @@ export default function Home() {
     const fetchStats = async (currentStoreId: string) => {
       const today = new Date().toISOString().split("T")[0];
       
-      // 1. ดึงสถิติรายได้
       const { data: todayOrders } = await supabase
         .from("orders")
         .select("total_amount")
@@ -33,7 +32,6 @@ export default function Home() {
         setTodayRevenue(todayOrders.reduce((sum, o) => sum + o.total_amount, 0));
       }
 
-      // 2. ดึงจำนวนออเดอร์ค้างทั้งหมดเพื่อแยกประเภท
       const { data: activeOrders } = await supabase
         .from("orders")
         .select("status, order_source, kitchen_status")
@@ -49,16 +47,19 @@ export default function Home() {
         ).length);
       }
 
-      // 3. ดึงจำนวนออเดอร์ที่มีลูกค้าทักแชทมาวันนี้ (แจ้งเตือน)
+      // ดึงข้อความแชทลูกค้าทั้งหมดเพื่อคำนวณ Unread
       const { data: recentChats } = await supabase
         .from("order_messages")
-        .select("order_id")
-        .eq("sender_type", "CUSTOMER")
-        .gte("created_at", today);
+        .select("order_id, created_at, sender_type")
+        .eq("sender_type", "CUSTOMER");
       
       if (recentChats && isMounted) {
-        const uniqueOrders = new Set(recentChats.map(c => c.order_id));
-        setChatCount(uniqueOrders.size);
+        const readMap = JSON.parse(localStorage.getItem('store_read_timestamps') || '{}');
+        // กรองเฉพาะข้อความที่เวลายังใหม่กว่าเวลาที่เรากดเปิดอ่านล่าสุด
+        const unreadCount = recentChats.filter(m => 
+            !readMap[m.order_id] || new Date(m.created_at) > new Date(readMap[m.order_id])
+        ).length;
+        setUnreadChatCount(unreadCount);
       }
     };
 
@@ -80,7 +81,6 @@ export default function Home() {
 
     checkAuthAndFetchData();
 
-    // ฟังการเปลี่ยนแปลงใน Database แบบ Real-time
     const orderChannel = supabase.channel('home_orders_channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
         if (storeIdStr) fetchStats(storeIdStr);
@@ -109,7 +109,6 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50 p-6 md:p-12 font-sans flex flex-col items-center">
       <div className="w-full max-w-7xl space-y-8">
         
-        {/* Header */}
         <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
             <p className="text-sm font-bold text-blue-600 mb-1">ยินดีต้อนรับสู่ระบบ</p>
@@ -120,7 +119,6 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Quick Stats Widget (เพิ่มกล่องที่ 5 สำหรับแจ้งเตือนแชท) */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-6 rounded-3xl text-white shadow-lg">
             <p className="text-sm font-medium text-blue-100 mb-1">ยอดขายสำเร็จ (วันนี้)</p>
@@ -137,19 +135,17 @@ export default function Home() {
             <p className="text-3xl lg:text-4xl font-black">{storePendingCount} <span className="text-lg font-normal">รายการ</span></p>
           </div>
 
-          <div onClick={() => router.push("/dashboard?tab=kitchen")} className={`cursor-pointer p-6 rounded-3xl text-white shadow-lg transition-transform hover:scale-105 active:scale-95 ${kitchenCount > 0 ? "bg-gradient-to-br from-purple-500 to-indigo-500" : "bg-gradient-to-br from-gray-400 to-gray-500"}`}>
+          <div onClick={() => window.open("/kitchen", "_blank")} className={`cursor-pointer p-6 rounded-3xl text-white shadow-lg transition-transform hover:scale-105 active:scale-95 ${kitchenCount > 0 ? "bg-gradient-to-br from-purple-500 to-indigo-500" : "bg-gradient-to-br from-gray-400 to-gray-500"}`}>
             <p className="text-sm font-medium text-purple-100 mb-1">ค้างทำในห้องครัว</p>
             <p className="text-3xl lg:text-4xl font-black">{kitchenCount} <span className="text-lg font-normal">รายการ</span></p>
           </div>
 
-          {/* กล่องที่ 5: แชทลูกค้าออนไลน์ใหม่ */}
-          <div onClick={() => router.push("/orders")} className={`cursor-pointer p-6 rounded-3xl text-white shadow-lg transition-transform hover:scale-105 active:scale-95 ${chatCount > 0 ? "bg-gradient-to-br from-pink-500 to-rose-500 animate-bounce-slight" : "bg-gradient-to-br from-gray-400 to-gray-500"}`}>
-            <p className="text-sm font-medium text-pink-100 mb-1">แชทลูกค้า (วันนี้)</p>
-            <p className="text-3xl lg:text-4xl font-black">{chatCount} <span className="text-lg font-normal">แชท</span></p>
+          <div onClick={() => router.push("/orders")} className={`cursor-pointer p-6 rounded-3xl text-white shadow-lg transition-transform hover:scale-105 active:scale-95 ${unreadChatCount > 0 ? "bg-gradient-to-br from-pink-500 to-rose-500 animate-pulse" : "bg-gradient-to-br from-gray-400 to-gray-500"}`}>
+            <p className="text-sm font-medium text-pink-100 mb-1">ข้อความใหม่ (แชท)</p>
+            <p className="text-3xl lg:text-4xl font-black">{unreadChatCount} <span className="text-lg font-normal">ข้อความ</span></p>
           </div>
         </div>
 
-        {/* Main Menu Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <button onClick={() => router.push("/pos")} className="cursor-pointer flex items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-300 transition-all text-left group">
             <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-2xl mr-4 group-hover:scale-110 transition-transform shrink-0">🛒</div>
