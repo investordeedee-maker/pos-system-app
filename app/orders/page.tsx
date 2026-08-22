@@ -47,7 +47,7 @@ export default function OrdersPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [filter, setFilter] = useState<"all" | "pending" | "processing" | "shipped" | "completed">("all");
+  const [filter, setFilter] = useState<"all" | "unread" | "pending" | "processing" | "shipped" | "completed">("all");
 
   // ระบบแชท และ อ่านข้อความ
   const [activeChatOrder, setActiveChatOrder] = useState<Order | null>(null);
@@ -179,8 +179,18 @@ export default function OrdersPage() {
 
   const filteredOrders = orders.filter(order => {
     if (filter === "all") return true;
+    if (filter === "unread") {
+      const unreadCount = order.order_messages?.filter(m => 
+        m.sender_type === "CUSTOMER" && (!readTimestamps[order.id] || new Date(m.created_at) > new Date(readTimestamps[order.id]))
+      ).length || 0;
+      return unreadCount > 0;
+    }
     return order.status === filter;
   });
+
+  const unreadOrdersCount = orders.filter(order => {
+    return (order.order_messages?.filter(m => m.sender_type === "CUSTOMER" && (!readTimestamps[order.id] || new Date(m.created_at) > new Date(readTimestamps[order.id]))).length || 0) > 0;
+  }).length;
 
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
     try {
@@ -265,6 +275,7 @@ export default function OrdersPage() {
         <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
           {[
             { id: "all", label: `ทั้งหมด (${orders.length})`, bg: "bg-gray-800" },
+            { id: "unread", label: `🔴 แชทใหม่ (${unreadOrdersCount})`, bg: "bg-rose-500" },
             { id: "pending", label: `รอรับ (${orders.filter(o => o.status === "pending").length})`, bg: "bg-yellow-500" },
             { id: "processing", label: `จัดเตรียม (${orders.filter(o => o.status === "processing").length})`, bg: "bg-blue-500" },
             { id: "shipped", label: `กำลังส่ง (${orders.filter(o => o.status === "shipped").length})`, bg: "bg-indigo-500" },
@@ -272,7 +283,7 @@ export default function OrdersPage() {
           ].map(btn => (
             <button 
               key={btn.id}
-              onClick={() => setFilter(btn.id as "all" | "pending" | "processing" | "shipped" | "completed")} 
+              onClick={() => setFilter(btn.id as "all" | "unread" | "pending" | "processing" | "shipped" | "completed")} 
               className={`cursor-pointer px-5 py-2.5 rounded-full font-bold whitespace-nowrap transition-all text-sm border ${filter === btn.id ? `${btn.bg} text-white border-transparent shadow-md` : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
             >
               {btn.label}
@@ -368,6 +379,7 @@ export default function OrdersPage() {
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] overflow-hidden animate-fade-in-up border border-gray-100">
             
+            {/* Modal Header */}
             <div className="bg-gradient-to-r from-blue-900 to-indigo-800 p-5 flex justify-between items-center z-10 shadow-md shrink-0">
               <div>
                 <h3 className="text-xl font-black text-white flex items-center gap-2">
@@ -379,6 +391,7 @@ export default function OrdersPage() {
               </button>
             </div>
 
+            {/* ส่วนควบคุมสถานะออเดอร์ */}
             <div className="p-4 bg-gray-50 border-b border-gray-200 flex gap-2 overflow-x-auto scrollbar-hide shrink-0 shadow-inner">
               <button onClick={() => updateOrderStatus(activeChatOrder.id, 'processing')} className={`cursor-pointer px-5 py-2.5 rounded-xl font-bold text-sm whitespace-nowrap transition-all active:scale-95 ${activeChatOrder.status === 'processing' ? 'bg-blue-600 text-white shadow-md border-blue-600' : 'bg-white border border-gray-300 text-gray-600 hover:bg-blue-50'}`}>
                 📦 1. จัดเตรียม
@@ -391,6 +404,7 @@ export default function OrdersPage() {
               </button>
             </div>
 
+            {/* พื้นที่แชท */}
             <div className="flex-1 overflow-y-auto p-5 bg-gray-50/80 space-y-4">
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-gray-400">
@@ -417,6 +431,7 @@ export default function OrdersPage() {
               <div ref={messagesEndRef} />
             </div>
 
+            {/* ช่องพิมพ์ข้อความ */}
             <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-gray-100 flex gap-3 shrink-0 shadow-[0_-10px_20px_rgba(0,0,0,0.02)]">
               <input 
                 type="text" 
