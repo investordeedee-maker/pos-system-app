@@ -1,39 +1,31 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "POS_JEAR",
-  description: "สั่งซื้อสินค้าออนไลน์ สะดวก รวดเร็ว",
-  manifest: "/manifest.json", // อ้างอิงไฟล์ PWA Manifest
+  title: "JEARPOS",
+  description: "ระบบ POS และร้านค้าออนไลน์",
+  manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
+    title: "JEARPOS", // ชื่อที่จะแสดงใต้ไอคอนบน iOS
     statusBarStyle: "default",
-    title: "Store",
+  },
+  icons: {
+    icon: "/logo.png",
+    apple: [
+      { url: "/logo.png", sizes: "512x512", type: "image/png" },
+    ],
   },
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html
-      lang="th"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="th">
+      <body>{children}</body>
     </html>
   );
-} 
+}
