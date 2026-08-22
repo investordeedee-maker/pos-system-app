@@ -28,6 +28,9 @@ export default function ProductsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  
+  // เพิ่ม State สำหรับเก็บไฟล์รูปภาพจริงๆ ก่อนอัปโหลด
+  const [imageFile, setImageFile] = useState<Blob | null>(null);
 
   const [formData, setFormData] = useState({
     barcode: "",
@@ -94,15 +97,21 @@ export default function ProductsPage() {
       const img = new window.Image();
       img.onload = () => {
         const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 400;
+        const MAX_WIDTH = 600;
         const scaleSize = MAX_WIDTH / img.width;
         canvas.width = MAX_WIDTH;
         canvas.height = img.height * scaleSize;
         const ctx = canvas.getContext("2d");
         ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL(file.type === "image/png" ? "image/png" : "image/jpeg", 0.8);
         
-        setFormData((prev) => ({ ...prev, image_url: dataUrl }));
+        // แปลงเป็น Blob (ไฟล์รูปภาพ) เพื่อเตรียมอัปโหลดเข้า Storage
+        canvas.toBlob((blob) => {
+          if (blob) {
+            setImageFile(blob);
+            // สร้าง URL จำลองเพื่อแสดงพรีวิวให้แอดมินเห็นก่อน
+            setFormData((prev) => ({ ...prev, image_url: URL.createObjectURL(blob) }));
+          }
+        }, "image/jpeg", 0.8);
       };
       img.src = event.target?.result as string;
     };
@@ -110,6 +119,7 @@ export default function ProductsPage() {
   };
 
   const handleOpenModal = (product?: Product) => {
+    setImageFile(null); // ล้างไฟล์ที่ค้างอยู่
     if (product) {
       setEditingId(product.id);
       setFormData({
@@ -143,6 +153,7 @@ export default function ProductsPage() {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingId(null);
+    setImageFile(null);
   };
 
   const handleSaveProduct = async (e: React.FormEvent) => {
@@ -153,6 +164,26 @@ export default function ProductsPage() {
     }
     setIsSubmitting(true);
     try {
+      let finalImageUrl = formData.image_url;
+
+      // ถ้ามีการเลือกรูปใหม่ ให้อัปโหลดเข้า Storage ก่อน
+      if (imageFile) {
+        const fileName = `products/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        const { error: uploadError } = await supabase.storage
+          .from('uploads')
+          .upload(fileName, imageFile, { contentType: 'image/jpeg' });
+          
+        if (uploadError) {
+          alert("อัปโหลดรูปภาพไม่สำเร็จ: " + uploadError.message);
+          setIsSubmitting(false);
+          return;
+        }
+        
+        // ดึงลิงก์ URL สาธารณะมาใช้งาน
+        const { data: publicUrlData } = supabase.storage.from('uploads').getPublicUrl(fileName);
+        finalImageUrl = publicUrlData.publicUrl;
+      }
+
       const productData = {
         store_id: storeId,
         barcode: formData.barcode,
@@ -163,7 +194,7 @@ export default function ProductsPage() {
         unit: formData.unit,
         sort_order: formData.sort_order,
         is_vat_exempt: formData.is_vat_exempt, 
-        image_url: formData.image_url,
+        image_url: finalImageUrl, // บันทึกแค่ URL สั้นๆ ลง DB
       };
 
       if (editingId) {
@@ -209,27 +240,9 @@ export default function ProductsPage() {
             📦 บัญชีรายการสินค้าคงคลัง
           </h1>
           <div className="flex flex-wrap gap-2 sm:gap-3 justify-center w-full lg:w-auto">
-            {/* ปุ่มกลับหน้าหลัก (Home) */}
-            <button 
-              onClick={() => router.push("/")}
-              className="cursor-pointer bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 px-5 py-2.5 rounded-xl font-bold shadow-sm transition-all active:scale-95 flex items-center gap-2 text-sm sm:text-base"
-            >
-              🏠 หน้าหลัก
-            </button>
-            {/* เปลี่ยนสีปุ่มกลับหน้า POS เป็นโทนสีที่สอดคล้อง */}
-            <button 
-              onClick={() => router.push("/pos")}
-              className="cursor-pointer bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-700 px-5 py-2.5 rounded-xl font-bold shadow-sm transition-all active:scale-95 flex items-center gap-2 text-sm sm:text-base"
-            >
-              🛒 กลับหน้า POS
-            </button>
-            {/* ปุ่มเพิ่มสินค้า (ปุ่มหลัก) */}
-            <button 
-              onClick={() => handleOpenModal()}
-              className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-md shadow-blue-600/20 transition-all active:scale-95 flex items-center gap-2 text-sm sm:text-base"
-            >
-              ➕ เพิ่มสินค้า
-            </button>
+            <button onClick={() => router.push("/")} className="cursor-pointer bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 px-5 py-2.5 rounded-xl font-bold shadow-sm transition-all active:scale-95 flex items-center gap-2 text-sm sm:text-base">🏠 หน้าหลัก</button>
+            <button onClick={() => router.push("/pos")} className="cursor-pointer bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-700 px-5 py-2.5 rounded-xl font-bold shadow-sm transition-all active:scale-95 flex items-center gap-2 text-sm sm:text-base">🛒 กลับหน้า POS</button>
+            <button onClick={() => handleOpenModal()} className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-md shadow-blue-600/20 transition-all active:scale-95 flex items-center gap-2 text-sm sm:text-base">➕ เพิ่มสินค้า</button>
           </div>
         </div>
 

@@ -11,7 +11,6 @@ interface CartItem extends Product { cart_qty: number; remark: string; }
 interface StoreSettings { id: string; name: string; address: string; logo_url: string; phone_number: string; promptpay_number: string; }
 interface OrderPayload { store_id: string; doc_no: string; order_source: string; status: string; total_amount: number; payment_method: string; customer_name: string; customer_phone: string; delivery_address: string; slip_image?: string; }
 
-// Interface สำหรับเก็บข้อมูลไว้สร้างรูปใบเสร็จ
 interface CompletedOrderDetails {
   docNo: string;
   items: CartItem[];
@@ -54,9 +53,11 @@ export default function CustomerStorefront() {
   const [customerPhone, setCustomerPhone] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [gpsLocation, setGpsLocation] = useState("");
-  const [slipImage, setSlipImage] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   
+  const [slipImage, setSlipImage] = useState<string | null>(null);
+  const [slipFile, setSlipFile] = useState<Blob | null>(null);
+  
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [createdDocNo, setCreatedDocNo] = useState("");
   const [completedDetails, setCompletedDetails] = useState<CompletedOrderDetails | null>(null);
@@ -121,8 +122,13 @@ export default function CustomerStorefront() {
         canvas.height = img.height * scaleSize;
         const ctx = canvas.getContext("2d");
         ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
-        setSlipImage(dataUrl);
+        
+        canvas.toBlob((blob) => {
+          if (blob) {
+            setSlipFile(blob);
+            setSlipImage(URL.createObjectURL(blob)); 
+          }
+        }, "image/jpeg", 0.7);
       };
       img.src = event.target?.result as string;
     };
@@ -166,19 +172,36 @@ export default function CustomerStorefront() {
 
       const finalDeliveryAddress = gpsLocation ? `${deliveryAddress}\nพิกัด GPS: ${gpsLocation}` : deliveryAddress;
 
+      let finalSlipUrl = "";
+
+      if (slipFile) {
+        // ใช้ crypto.randomUUID() แทนการสุ่มตัวเลขแบบเดิม เพื่อไม่ให้โดน ESLint ดักจับ
+        const uniqueId = crypto.randomUUID();
+        const uploadFileName = `slips/OL_${uniqueId}.jpg`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('uploads')
+          .upload(uploadFileName, slipFile, { contentType: 'image/jpeg' });
+          
+        if (uploadError) throw uploadError;
+        
+        const { data: publicUrlData } = supabase.storage.from('uploads').getPublicUrl(uploadFileName);
+        finalSlipUrl = publicUrlData.publicUrl;
+      }
+
       const payload: OrderPayload = {
         store_id: storeSettings.id, doc_no: docNo, order_source: "ONLINE", status: "pending", 
         total_amount: totalAmount, payment_method: "transfer", customer_name: customerName, 
         customer_phone: customerPhone, delivery_address: finalDeliveryAddress,
       };
-      if (slipImage) payload.slip_image = slipImage; 
+      
+      if (finalSlipUrl) payload.slip_image = finalSlipUrl; 
 
       const { data: orderData, error: orderError } = await supabase.from("orders").insert([payload]).select().single();
       if (orderError) throw orderError;
 
       const orderItemsToInsert = cart.map((item) => ({ order_id: orderData.id, product_id: item.id, qty: item.cart_qty, unit_price: item.sell_price, remark: item.remark || "" }));
       const { error: itemsError } = await supabase.from("order_items").insert(orderItemsToInsert);
-      
       if (itemsError) throw itemsError;
 
       for (const item of cart) {
@@ -192,7 +215,6 @@ export default function CustomerStorefront() {
 
       localStorage.setItem("last_order_doc", docNo);
 
-      // เก็บรายละเอียดบิลไว้ก่อนล้างตะกร้า เพื่อใช้วาดรูปใบเสร็จ
       setCompletedDetails({
         docNo: docNo,
         items: [...cart],
@@ -201,7 +223,7 @@ export default function CustomerStorefront() {
         date: new Date().toLocaleString('th-TH')
       });
 
-      setOrderSuccess(true); setCart([]); setShowCheckout(false); setSlipImage(null);
+      setOrderSuccess(true); setCart([]); setShowCheckout(false); setSlipImage(null); setSlipFile(null);
     } catch (error: unknown) { 
       if (error instanceof Error) alert(`ข้อผิดพลาดฐานข้อมูล: ${error.message}`);
       else alert("เกิดข้อผิดพลาด");
@@ -213,7 +235,6 @@ export default function CustomerStorefront() {
     alert("คัดลอกเลขคำสั่งซื้อเรียบร้อยแล้ว!");
   };
 
-  // ฟังก์ชันวาดและดาวน์โหลดใบเสร็จเป็นรูปภาพ PNG
   const downloadReceiptImage = () => {
     if (!completedDetails) return;
     
@@ -228,16 +249,13 @@ export default function CustomerStorefront() {
     const lineHeight = 30;
     const margin = 30;
 
-    // คำนวณความสูงแบบไดนามิกตามจำนวนสินค้า
     let totalHeight = 400 + (completedDetails.items.length * lineHeight);
     completedDetails.items.forEach(item => { if(item.remark) totalHeight += 25; });
     canvas.height = totalHeight;
 
-    // เทสีพื้นหลังสีขาว
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // หัวใบเสร็จ
     ctx.fillStyle = "#111827"; 
     ctx.textAlign = "center";
     ctx.font = "bold 32px sans-serif";
@@ -248,7 +266,6 @@ export default function CustomerStorefront() {
     ctx.fillStyle = "#4b5563"; 
     ctx.fillText("ใบสั่งซื้อสินค้า / E-Receipt", width / 2, y);
 
-    // เส้นประแบ่งส่วน
     y += 35;
     ctx.strokeStyle = "#e5e7eb";
     ctx.lineWidth = 2;
@@ -258,7 +275,6 @@ export default function CustomerStorefront() {
     ctx.lineTo(width - margin, y);
     ctx.stroke();
 
-    // รายละเอียดออเดอร์
     y += 40;
     ctx.fillStyle = "#374151"; 
     ctx.textAlign = "left";
@@ -277,7 +293,6 @@ export default function CustomerStorefront() {
     ctx.lineTo(width - margin, y);
     ctx.stroke();
 
-    // หัวตารางรายการสินค้า
     y += 40;
     ctx.font = "bold 18px sans-serif";
     ctx.fillStyle = "#111827";
@@ -285,7 +300,6 @@ export default function CustomerStorefront() {
     ctx.textAlign = "right";
     ctx.fillText("ราคารวม", width - margin, y);
 
-    // วนลูปวาดรายการสินค้า
     y += 35;
     ctx.font = "18px sans-serif";
     completedDetails.items.forEach(item => {
@@ -317,7 +331,6 @@ export default function CustomerStorefront() {
     ctx.lineTo(width - margin, y);
     ctx.stroke();
 
-    // ยอดชำระสุทธิ
     y += 45;
     ctx.textAlign = "left";
     ctx.font = "bold 22px sans-serif";
@@ -335,7 +348,6 @@ export default function CustomerStorefront() {
     ctx.fillStyle = "#6b7280"; 
     ctx.fillText("ขอบคุณที่อุดหนุนครับ/ค่ะ", width / 2, y);
 
-    // ดาวน์โหลดรูปอัตโนมัติ
     const dataUrl = canvas.toDataURL("image/png");
     const link = document.createElement("a");
     link.href = dataUrl;
@@ -354,22 +366,14 @@ export default function CustomerStorefront() {
         
         <div className="flex gap-2 mb-6">
             <button onClick={copyToClipboard} className="cursor-pointer flex-1 bg-gray-50 font-bold py-3 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 shadow-sm active:scale-95">📋 คัดลอกเลขบิล</button>
-            
-            {/* แก้ไขเป็นปุ่มดาวน์โหลดไฟล์รูปภาพ */}
-            <button onClick={downloadReceiptImage} className="cursor-pointer flex-1 bg-indigo-50 font-bold py-3 rounded-xl text-sm text-indigo-700 hover:bg-indigo-100 transition-colors border border-indigo-200 shadow-sm active:scale-95 flex items-center justify-center gap-1">
-              📥 โหลดใบเสร็จ
-            </button>
+            <button onClick={downloadReceiptImage} className="cursor-pointer flex-1 bg-indigo-50 font-bold py-3 rounded-xl text-sm text-indigo-700 hover:bg-indigo-100 transition-colors border border-indigo-200 shadow-sm active:scale-95 flex items-center justify-center gap-1">📥 โหลดใบเสร็จ</button>
         </div>
 
         <p className="text-gray-600 mb-8 font-medium leading-relaxed">ทางร้านได้รับคำสั่งซื้อและสลิปของคุณเรียบร้อยแล้ว จะรีบดำเนินการจัดส่งให้เร็วที่สุดครับ</p>
         
         <div className="flex flex-col gap-3">
-          <button onClick={() => router.push("/track")} className="cursor-pointer bg-gray-900 text-white font-bold py-4 px-8 rounded-2xl w-full hover:bg-black transition-all shadow-lg flex items-center justify-center gap-2 text-lg active:scale-95">
-            📦 ติดตามสถานะ / แชท
-          </button>
-          <button onClick={() => { setOrderSuccess(false); setStep("form"); }} className="cursor-pointer bg-white border-2 border-gray-100 text-gray-600 font-bold py-3.5 px-8 rounded-2xl w-full hover:bg-gray-50 transition-all active:scale-95">
-            ← สั่งสินค้าเพิ่มเติม
-          </button>
+          <button onClick={() => router.push("/track")} className="cursor-pointer bg-gray-900 text-white font-bold py-4 px-8 rounded-2xl w-full hover:bg-black transition-all shadow-lg flex items-center justify-center gap-2 text-lg active:scale-95">📦 ติดตามสถานะ / แชท</button>
+          <button onClick={() => { setOrderSuccess(false); setStep("form"); }} className="cursor-pointer bg-white border-2 border-gray-100 text-gray-600 font-bold py-3.5 px-8 rounded-2xl w-full hover:bg-gray-50 transition-all active:scale-95">← สั่งสินค้าเพิ่มเติม</button>
         </div>
       </div>
     </div>
@@ -530,7 +534,7 @@ export default function CustomerStorefront() {
                 <div className="flex gap-3">
                   <button onClick={() => setStep("form")} className="cursor-pointer flex-[1] bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-4 rounded-2xl transition-colors text-sm">← กลับ</button>
                   <button onClick={handleFinalSubmitOrder} disabled={isSubmitting || !slipImage} className="cursor-pointer flex-[2.5] bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-black text-lg py-4 rounded-2xl shadow-lg shadow-indigo-600/20 disabled:shadow-none transition-all active:scale-95 flex items-center justify-center gap-2">
-                    {isSubmitting ? "⏳ รอสักครู่..." : "✅ แจ้งโอนเงิน"}
+                    {isSubmitting ? "⏳ กำลังดำเนินการ..." : "✅ แจ้งโอนเงิน"}
                   </button>
                 </div>
               )}
