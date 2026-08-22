@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ระบบร้านค้าออนไลน์",
+  title: "POS_JEAR",
   description: "สั่งซื้อสินค้าออนไลน์ สะดวก รวดเร็ว",
   manifest: "/manifest.json", // อ้างอิงไฟล์ PWA Manifest
   appleWebApp: {
