@@ -204,68 +204,83 @@ export default function ProductsPage() {
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
       <div className="max-w-6xl mx-auto">
-        <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-          <h1 className="text-3xl font-bold text-gray-800">📦 บัญชีรายการสินค้าคงคลัง</h1>
-          <div className="flex gap-3">
+        <div className="flex flex-col lg:flex-row justify-between items-center mb-6 gap-4 bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+          <h1 className="text-2xl font-black text-gray-800 flex items-center gap-2">
+            📦 บัญชีรายการสินค้าคงคลัง
+          </h1>
+          <div className="flex flex-wrap gap-2 sm:gap-3 justify-center w-full lg:w-auto">
+            {/* ปุ่มกลับหน้าหลัก (Home) */}
+            <button 
+              onClick={() => router.push("/")}
+              className="cursor-pointer bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 px-5 py-2.5 rounded-xl font-bold shadow-sm transition-all active:scale-95 flex items-center gap-2 text-sm sm:text-base"
+            >
+              🏠 หน้าหลัก
+            </button>
+            {/* เปลี่ยนสีปุ่มกลับหน้า POS เป็นโทนสีที่สอดคล้อง */}
             <button 
               onClick={() => router.push("/pos")}
-              className="cursor-pointer bg-gray-800 hover:bg-gray-900 text-white px-6 py-3 rounded-lg font-bold shadow-md transition-all active:scale-95"
+              className="cursor-pointer bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-700 px-5 py-2.5 rounded-xl font-bold shadow-sm transition-all active:scale-95 flex items-center gap-2 text-sm sm:text-base"
             >
-              กลับหน้า POS
+              🛒 กลับหน้า POS
             </button>
+            {/* ปุ่มเพิ่มสินค้า (ปุ่มหลัก) */}
             <button 
               onClick={() => handleOpenModal()}
-              className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold shadow-md transition-all active:scale-95"
+              className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-md shadow-blue-600/20 transition-all active:scale-95 flex items-center gap-2 text-sm sm:text-base"
             >
-              + เพิ่ม/แก้ไข สินค้า
+              ➕ เพิ่มสินค้า
             </button>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-gray-50 text-gray-600 text-sm border-b border-gray-200">
-                  <th className="p-4 font-semibold whitespace-nowrap">รูป/ข้อมูลสินค้า</th>
-                  <th className="p-4 font-semibold text-center whitespace-nowrap">ราคา (ทุน/ขาย)</th>
-                  <th className="p-4 font-semibold text-center whitespace-nowrap">ยอดในคลัง</th>
-                  <th className="p-4 font-semibold text-center whitespace-nowrap">การจัดการ</th>
+                <tr className="bg-gray-50 text-gray-500 text-sm border-b border-gray-100">
+                  <th className="p-5 font-bold whitespace-nowrap">รูป/ข้อมูลสินค้า</th>
+                  <th className="p-5 font-bold text-center whitespace-nowrap">ราคา (ทุน/ขาย)</th>
+                  <th className="p-5 font-bold text-center whitespace-nowrap">ยอดในคลัง</th>
+                  <th className="p-5 font-bold text-center whitespace-nowrap">การจัดการ</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-gray-50">
                 {products.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="p-8 text-center text-gray-400 font-medium">ยังไม่มีสินค้าในระบบ กรุณากดปุ่มเพิ่มสินค้า</td>
+                    <td colSpan={4} className="p-12 text-center text-gray-400 font-medium bg-gray-50/50">ยังไม่มีสินค้าในระบบ กรุณากดปุ่มเพิ่มสินค้า</td>
                   </tr>
                 ) : (
                   products.map((product) => (
-                    <tr key={product.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="p-4 flex items-center gap-4">
+                    <tr key={product.id} className="hover:bg-blue-50/50 transition-colors">
+                      <td className="p-5 flex items-center gap-4">
                         {product.image_url ? (
-                          <div className="w-20 h-20 bg-white rounded-lg shadow-sm border p-1 flex items-center justify-center relative overflow-hidden">
+                          <div className="w-20 h-20 bg-white rounded-xl shadow-sm border border-gray-100 p-1 flex items-center justify-center relative overflow-hidden shrink-0">
                             <img src={product.image_url} alt={product.name} className="w-full h-full object-contain p-1" />
                           </div>
                         ) : (
-                          <div className="w-20 h-20 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 text-xs border border-gray-200">ไม่มีรูป</div>
+                          <div className="w-20 h-20 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 text-xs border border-gray-200 shrink-0 font-medium">ไม่มีรูป</div>
                         )}
                         <div>
-                          <div className="font-bold text-gray-800 text-lg">{product.name}</div>
-                          <div className="text-sm text-gray-500">บาร์โค้ด: {product.barcode || "-"}</div>
-                          {product.is_vat_exempt && <span className="text-xs bg-red-600 text-white px-2 py-0.5 rounded-full font-medium mt-1 inline-block shadow-sm">VAT 0%</span>}
+                          <div className="font-black text-gray-800 text-lg leading-snug">{product.name}</div>
+                          <div className="text-sm text-gray-500 mt-0.5">บาร์โค้ด: <span className="font-medium text-gray-700">{product.barcode || "-"}</span></div>
+                          {product.is_vat_exempt && <span className="text-[10px] bg-red-100 border border-red-200 text-red-600 px-2 py-0.5 rounded-md font-bold mt-1.5 inline-block shadow-sm">VAT 0%</span>}
                         </div>
                       </td>
-                      <td className="p-4 text-center">
-                        <div className="text-red-500 text-sm">ทุน: {product.cost_price.toFixed(2)}</div>
-                        <div className="text-blue-600 font-bold text-lg">ขาย: {product.sell_price.toFixed(2)}</div>
+                      <td className="p-5 text-center">
+                        <div className="text-gray-500 text-sm font-medium">ทุน: {product.cost_price.toFixed(2)}</div>
+                        <div className="text-blue-600 font-black text-lg mt-0.5">ขาย: {product.sell_price.toFixed(2)}</div>
                       </td>
-                      <td className="p-4 text-center font-bold text-gray-800 text-lg">
-                        <span className={product.stock_qty <= 5 ? "text-red-500" : ""}>{product.stock_qty}</span>
-                        <span className="text-sm text-gray-500 font-medium ml-1">{product.unit}</span>
+                      <td className="p-5 text-center">
+                        <div className="inline-flex items-center justify-center bg-gray-50 border border-gray-200 px-4 py-2 rounded-xl">
+                          <span className={`font-black text-xl ${product.stock_qty <= 5 ? "text-red-500" : "text-gray-800"}`}>{product.stock_qty}</span>
+                          <span className="text-sm text-gray-500 font-bold ml-1.5">{product.unit}</span>
+                        </div>
                       </td>
-                      <td className="p-4 text-center space-x-2 whitespace-nowrap">
-                        <button onClick={() => handleOpenModal(product)} className="cursor-pointer text-yellow-600 border border-yellow-400 hover:bg-yellow-50 font-bold px-4 py-2 rounded-lg transition-colors">แก้ไข</button>
-                        <button onClick={() => handleDeleteProduct(product.id)} className="cursor-pointer text-red-600 border border-red-400 hover:bg-red-50 font-bold px-4 py-2 rounded-lg transition-colors">ลบ</button>
+                      <td className="p-5 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-2">
+                          <button onClick={() => handleOpenModal(product)} className="cursor-pointer text-yellow-700 bg-yellow-50 border border-yellow-200 hover:bg-yellow-100 font-bold px-4 py-2 rounded-xl transition-all shadow-sm active:scale-95 text-sm">แก้ไข</button>
+                          <button onClick={() => handleDeleteProduct(product.id)} className="cursor-pointer text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 font-bold px-4 py-2 rounded-xl transition-all shadow-sm active:scale-95 text-sm">ลบ</button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -277,73 +292,78 @@ export default function ProductsPage() {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden my-8">
-            <div className="p-6 border-b border-gray-100 flex justify-between items-center relative">
-              <h2 className="text-2xl font-bold text-gray-800">{editingId ? "แก้ไขสินค้า" : "เพิ่มสินค้าใหม่"}</h2>
-              <button onClick={handleCloseModal} className="cursor-pointer text-gray-400 hover:text-gray-600 text-2xl font-bold absolute right-6">✕</button>
+        <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-xl overflow-hidden my-8 border border-gray-100 animate-fade-in-up">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center relative bg-gray-50/50">
+              <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
+                {editingId ? "✏️ แก้ไขข้อมูลสินค้า" : "📦 เพิ่มสินค้าใหม่"}
+              </h2>
+              <button onClick={handleCloseModal} className="cursor-pointer bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-600 w-10 h-10 rounded-full flex items-center justify-center text-xl font-bold shadow-sm border border-gray-200 transition-all absolute right-6">✕</button>
             </div>
             
-            <form onSubmit={handleSaveProduct} className="p-6 md:p-8 space-y-5">
+            <form onSubmit={handleSaveProduct} className="p-6 md:p-8 space-y-5 bg-white">
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">ชื่อสินค้า <span className="text-red-500">*</span></label>
-                <input type="text" required value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" />
+                <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">ชื่อสินค้า <span className="text-red-500">*</span></label>
+                <input type="text" required value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all font-bold text-gray-800 bg-gray-50 focus:bg-white" placeholder="กรอกชื่อสินค้า..." />
               </div>
               
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">บาร์โค้ด</label>
-                <input type="text" value={formData.barcode} onChange={(e) => setFormData({...formData, barcode: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="สแกนหรือพิมพ์..." />
+                <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">บาร์โค้ด</label>
+                <input type="text" value={formData.barcode} onChange={(e) => setFormData({...formData, barcode: e.target.value})} className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all font-bold text-gray-800 bg-gray-50 focus:bg-white" placeholder="สแกนหรือพิมพ์..." />
               </div>
               
               <div className="grid grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">ราคาทุน</label>
-                  <input type="number" min="0" step="0.01" value={formData.cost_price === 0 ? "" : formData.cost_price} onChange={(e) => setFormData({...formData, cost_price: Number(e.target.value)})} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" />
+                  <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">ราคาทุน</label>
+                  <input type="number" min="0" step="0.01" value={formData.cost_price === 0 ? "" : formData.cost_price} onChange={(e) => setFormData({...formData, cost_price: Number(e.target.value)})} className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all font-bold text-gray-800 bg-gray-50 focus:bg-white" placeholder="0.00" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">ราคาขาย (รวม VAT แล้ว) <span className="text-red-500">*</span></label>
-                  <input type="number" min="0" step="0.01" required value={formData.sell_price === 0 ? "" : formData.sell_price} onChange={(e) => setFormData({...formData, sell_price: Number(e.target.value)})} className="w-full px-4 py-3 border-2 border-blue-400 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" />
+                  <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">ราคาขาย <span className="normal-case font-medium text-gray-400">(รวม VAT แล้ว)</span> <span className="text-red-500">*</span></label>
+                  <input type="number" min="0" step="0.01" required value={formData.sell_price === 0 ? "" : formData.sell_price} onChange={(e) => setFormData({...formData, sell_price: Number(e.target.value)})} className="w-full px-4 py-3.5 border-2 border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all font-black text-blue-600 bg-blue-50 focus:bg-white" placeholder="0.00" />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">สต๊อกตั้งต้น <span className="text-red-500">*</span></label>
-                  <input type="number" required value={formData.stock_qty === 0 ? "" : formData.stock_qty} onChange={(e) => setFormData({...formData, stock_qty: Number(e.target.value)})} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">สต๊อกตั้งต้น <span className="text-red-500">*</span></label>
+                  <input type="number" required value={formData.stock_qty === 0 ? "" : formData.stock_qty} onChange={(e) => setFormData({...formData, stock_qty: Number(e.target.value)})} className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-bold text-gray-800 bg-gray-50 focus:bg-white" placeholder="0" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">หน่วยนับ</label>
-                  <input type="text" value={formData.unit} onChange={(e) => setFormData({...formData, unit: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="เช่น ชิ้น" />
+                  <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">หน่วยนับ</label>
+                  <input type="text" value={formData.unit} onChange={(e) => setFormData({...formData, unit: e.target.value})} className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-bold text-gray-800 bg-gray-50 focus:bg-white" placeholder="เช่น ชิ้น" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">ลำดับโชว์</label>
-                  <input type="number" value={formData.sort_order} onChange={(e) => setFormData({...formData, sort_order: Number(e.target.value)})} className="w-full px-4 py-3 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="1, 2, 3..." />
+                  <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">ลำดับโชว์</label>
+                  <input type="number" value={formData.sort_order} onChange={(e) => setFormData({...formData, sort_order: Number(e.target.value)})} className="w-full px-4 py-3.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-bold text-gray-800 bg-gray-50 focus:bg-white" placeholder="1, 2, 3..." />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">อัปโหลดรูปภาพ (.jpg, .png)</label>
-                <div className="flex items-center gap-4">
-                  <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full px-4 py-2 border border-gray-300 rounded-xl file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
+                <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">อัปโหลดรูปภาพ <span className="normal-case font-medium text-gray-400">(.jpg, .png)</span></label>
+                <div className="flex items-center gap-4 bg-gray-50 p-2 rounded-xl border border-gray-200">
+                  <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full px-2 py-1 file:mr-4 file:py-2.5 file:px-5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-white file:text-blue-700 hover:file:bg-blue-50 file:shadow-sm cursor-pointer text-sm text-gray-500" />
                   {formData.image_url && (
-                    <div className="w-12 h-12 relative border rounded-lg overflow-hidden bg-white flex items-center justify-center shrink-0">
-                      <img src={formData.image_url} alt="Preview" className="w-full h-full object-contain" />
+                    <div className="w-14 h-14 relative border border-gray-200 rounded-lg overflow-hidden bg-white flex items-center justify-center shrink-0 shadow-sm mr-2">
+                      <img src={formData.image_url} alt="Preview" className="w-full h-full object-contain p-1" />
                     </div>
                   )}
                 </div>
               </div>
 
               <div className="pt-2">
-                <label className="flex items-center space-x-3 cursor-pointer p-4 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
-                  <input type="checkbox" checked={formData.is_vat_exempt} onChange={(e) => setFormData({...formData, is_vat_exempt: e.target.checked})} className="w-6 h-6 text-blue-600 rounded-md border-gray-300 focus:ring-blue-500 cursor-pointer" />
-                  <span className="text-sm font-bold text-gray-700">สินค้าเกษตร/ยกเว้นภาษี (เช่น พวงมาลัย) <span className="text-red-500">(VAT 0%)</span></span>
+                <label className="flex items-start space-x-3 cursor-pointer p-4 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors bg-white">
+                  <input type="checkbox" checked={formData.is_vat_exempt} onChange={(e) => setFormData({...formData, is_vat_exempt: e.target.checked})} className="mt-0.5 w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer" />
+                  <div>
+                    <span className="text-sm font-bold text-gray-800 block">สินค้าเกษตร/ยกเว้นภาษี (VAT 0%)</span>
+                    <span className="text-xs font-medium text-gray-500 mt-0.5 block">สำหรับสินค้าที่ได้รับการยกเว้นภาษีมูลค่าเพิ่มตามกฎหมาย (เช่น พวงมาลัย)</span>
+                  </div>
                 </label>
               </div>
               
-              <div className="pt-6 flex gap-4">
-                <button type="button" onClick={handleCloseModal} className="cursor-pointer flex-1 py-4 bg-white border-2 border-gray-200 text-gray-600 rounded-2xl font-bold hover:bg-gray-50 transition-all">ยกเลิก</button>
-                <button type="submit" disabled={isSubmitting} className="cursor-pointer flex-1 py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-2xl font-bold transition-all shadow-lg shadow-blue-200">
-                  {isSubmitting ? "กำลังบันทึก..." : "บันทึกข้อมูลสินค้า"}
+              <div className="pt-6 flex gap-3">
+                <button type="button" onClick={handleCloseModal} className="cursor-pointer flex-1 py-4 bg-white border border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 hover:text-gray-900 transition-all text-sm active:scale-95 shadow-sm">ยกเลิก</button>
+                <button type="submit" disabled={isSubmitting} className="cursor-pointer flex-[2] py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-xl font-bold transition-all shadow-md shadow-blue-600/20 active:scale-95 text-base flex items-center justify-center gap-2">
+                  {isSubmitting ? "⏳ กำลังบันทึก..." : "✅ บันทึกข้อมูลสินค้า"}
                 </button>
               </div>
             </form>
