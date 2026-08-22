@@ -190,4 +190,4 @@ export default function KitchenDisplayPage() {
       </div>
     </div>
   );
-}
+} 
