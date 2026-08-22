@@ -3,14 +3,15 @@
   "short_name": "JEARPOS",
   "display": "standalone",
   "start_url": "/",
+  "scope": "/",
   "background_color": "#ffffff",
   "theme_color": "#ffffff",
   "icons": [
-      {
+    {
       "src": "/logo.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose":"any maskable"
+      "purpose": "any maskable"
     }
   ]
 }
