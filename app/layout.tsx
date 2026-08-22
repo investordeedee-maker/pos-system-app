@@ -43,6 +43,24 @@ export default function RootLayout({
       {/* เพิ่ม style ลงใน body เพื่อป้องกันการ scroll เด้ง (Bounce effect) บน iOS/Android */}
       <body className="overscroll-none h-[100dvh] w-full m-0 p-0 overflow-x-hidden">
         {children}
+        
+        {/* --- ส่วนที่เพิ่มเข้ามาเพื่อให้เบราว์เซอร์ยอมรับว่าเป็นแอป (PWA) --- */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js').then(
+                    function(registration) { console.log('ServiceWorker registered'); },
+                    function(err) { console.log('ServiceWorker failed: ', err); }
+                  );
+                });
+              }
+            `,
+          }}
+        />
+        {/* ------------------------------------------------------------- */}
+        
       </body>
     </html>
   );
