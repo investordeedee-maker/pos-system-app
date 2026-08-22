@@ -152,7 +152,9 @@ export default function DashboardPage() {
 
   const onlineQueue = activeOrders.filter(o => o.order_source === 'ONLINE' && o.status === 'pending');
   const storeQueue = activeOrders.filter(o => o.order_source !== 'ONLINE' && o.status === 'pending');
-  const kitchenQueue = activeOrders.filter(o => o.kitchen_status === 'pending' && (o.status === 'completed' || (o.status === 'pending' && o.order_source !== 'ONLINE')));
+  
+  // แก้ไขเงื่อนไข kitchenQueue ให้ตรงกับหน้า KDS 100%
+  const kitchenQueue = activeOrders.filter(o => o.kitchen_status === 'pending' && !(o.order_source === 'ONLINE' && o.status === 'pending'));
 
   const handleUpdateStatus = async (orderId: string, currentSource: string, currentStatus: string, tab: string) => {
     try {
@@ -161,7 +163,7 @@ export default function DashboardPage() {
 
       if (tab === "online") {
         if (!confirm("ตรวจสอบสลิปถูกต้องแล้ว ต้องการส่งออเดอร์ให้ห้องครัวใช่หรือไม่?")) return;
-        updateData = { status: "processing" }; // อนุมัติสลิป ให้ไปอยู่สถานะ จัดเตรียม
+        updateData = { status: "processing" };
         alertMsg = "อนุมัติสลิปสำเร็จ ส่งออเดอร์เข้าห้องครัวแล้ว!";
       } else if (tab === "store") {
         if (!confirm("ลูกค้ายืนยันชำระเงินเรียบร้อยแล้วใช่หรือไม่?")) return;
