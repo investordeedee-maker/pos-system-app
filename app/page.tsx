@@ -123,9 +123,7 @@ export default function Home() {
           <div>
             <p className="text-sm font-bold text-blue-600 mb-1">ยินดีต้อนรับสู่ระบบ</p>
             <h1 className="text-3xl font-black text-gray-800">{storeName}</h1>
-            {/* --- เพิ่มโค้ดบรรทัดนี้ลงไป --- */}
-            <div className="mt-2 text-sm text-blue-600 font-bold">pp-iota.vercel.app</div>
-            {/* -------------------------- */}
+ 
 
 
 
