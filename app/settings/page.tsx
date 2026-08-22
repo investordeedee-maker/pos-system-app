@@ -3,7 +3,6 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
-// 1. เพิ่ม name, address และ logo_url เข้าไปใน Interface
 interface StoreSettings { 
   id: string; 
   name: string;
@@ -49,7 +48,6 @@ export default function SettingsPage() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) { router.push("/login"); return; }
         
-        // ตรวจสอบสิทธิ์ (Role) เพื่อความปลอดภัย
         const { data: profile } = await supabase.from("profiles").select("store_id, role").eq("id", user.id).single();
         
         if (profile?.store_id && isMounted) {
@@ -66,32 +64,29 @@ export default function SettingsPage() {
     return () => { isMounted = false; };
   }, [router]);
 
-  // ฟังก์ชันอัปโหลดโลโก้
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
     setIsUploading(true);
     try {
-      // อัปโหลดไฟล์ไปที่ Supabase Storage (ต้องสร้าง Bucket ชื่อ 'store_assets' ไว้ใน Supabase ก่อนนะครับ)
       const fileExt = file.name.split('.').pop();
       const fileName = `logo_${settings.id}_${Math.random()}.${fileExt}`;
       const { error: uploadError } = await supabase.storage.from('store_assets').upload(fileName, file);
       
       if (uploadError) throw uploadError;
       
-      // ดึง URL รูปภาพมาแสดงผล
       const { data: publicUrlData } = supabase.storage.from('store_assets').getPublicUrl(fileName);
       setSettings({ ...settings, logo_url: publicUrlData.publicUrl });
       
     } catch (error) {
+      console.error(error); // แก้ไข Error 1: พิมพ์ค่า error เพื่อใช้งานตัวแปร
       alert("เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ กรุณาลองใหม่");
     } finally {
       setIsUploading(false);
     }
   };
 
-  // ฟังก์ชันลบโลโก้
   const handleRemoveLogo = () => {
     setSettings({ ...settings, logo_url: "" });
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -101,7 +96,6 @@ export default function SettingsPage() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      // อัปเดตข้อมูลทั้งหมดรวมถึง ชื่อ, ที่อยู่ และ โลโก้
       await supabase.from("stores").update({ 
         name: settings.name,
         address: settings.address,
@@ -148,16 +142,15 @@ export default function SettingsPage() {
 
         <form onSubmit={handleSave} className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-gray-100 space-y-6">
           
-          {/* ส่วนที่ 1: ข้อมูลบริษัทและโลโก้ */}
           <div className="border-b border-gray-100 pb-6 space-y-6">
             <h2 className="text-lg font-black text-gray-800">ข้อมูลสถานประกอบการ</h2>
             
-            {/* อัปโหลดโลโก้ */}
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-3">โลโก้ร้าน / บริษัท (แสดงบนใบเสร็จและหน้าจอ)</label>
               <div className="flex items-center gap-4">
                 <div className="w-24 h-24 bg-gray-100 border-2 border-dashed border-gray-300 rounded-2xl flex items-center justify-center overflow-hidden shrink-0">
                   {settings.logo_url ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
                     <img src={settings.logo_url} alt="Store Logo" className="w-full h-full object-cover" />
                   ) : (
                     <span className="text-gray-400 text-3xl">🖼️</span>
@@ -166,11 +159,11 @@ export default function SettingsPage() {
                 <div className="space-y-2 flex-1">
                   <input type="file" accept="image/*" ref={fileInputRef} onChange={handleLogoUpload} className="hidden" />
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-4 py-2 bg-blue-50 text-blue-600 font-bold rounded-xl hover:bg-blue-100 transition-colors">
+                    <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="cursor-pointer px-4 py-2 bg-blue-50 text-blue-600 font-bold rounded-xl hover:bg-blue-100 transition-colors">
                       {isUploading ? "กำลังอัปโหลด..." : "เลือกรูปภาพ"}
                     </button>
                     {settings.logo_url && (
-                      <button type="button" onClick={handleRemoveLogo} className="px-4 py-2 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors">ลบโลโก้</button>
+                      <button type="button" onClick={handleRemoveLogo} className="cursor-pointer px-4 py-2 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors">ลบโลโก้</button>
                     )}
                   </div>
                   <p className="text-xs text-gray-500">แนะนำขนาด 512x512 px นามสกุล .png หรือ .jpg</p>
@@ -178,7 +171,6 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* ชื่อร้าน และ ที่อยู่ */}
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">ชื่อร้าน หรือ ชื่อบริษัทจดทะเบียน</label>
               <input type="text" placeholder="เช่น บริษัท นำพาความสุข จำกัด" value={settings.name || ""} onChange={(e) => setSettings({...settings, name: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl outline-none" required />
@@ -189,16 +181,13 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* ส่วนที่ 2: ข้อมูลการติดต่อและภาษี */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div><label className="block text-sm font-bold text-gray-700 mb-2">เบอร์โทรศัพท์ (แสดงบนใบเสร็จ)</label><input type="text" value={settings.phone_number || ""} onChange={(e) => setSettings({...settings, phone_number: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl outline-none" /></div>
             <div><label className="block text-sm font-bold text-gray-700 mb-2">เลขประจำตัวผู้เสียภาษี</label><input type="text" value={settings.tax_id || ""} onChange={(e) => setSettings({...settings, tax_id: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl outline-none" /></div>
           </div>
           
-          {/* ส่วนที่ 3: การเงิน */}
           <div><label className="block text-sm font-bold text-green-700 mb-2">PromptPay สำหรับรับเงิน</label><input type="text" value={settings.promptpay_number || ""} onChange={(e) => setSettings({...settings, promptpay_number: e.target.value})} className="w-full p-3 border-2 border-green-400 rounded-xl outline-none" /></div>
           
-          {/* ส่วนที่ 4: ใบเสร็จ */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div><label className="block text-sm font-bold text-gray-700 mb-2">หัวข้อ: บิลก่อนจ่ายเงิน (Draft)</label><input type="text" value={settings.invoice_title || ""} onChange={(e) => setSettings({...settings, invoice_title: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl outline-none" /></div>
             <div><label className="block text-sm font-bold text-gray-700 mb-2">หัวข้อ: บิลหลังจ่ายเงิน (Receipt)</label><input type="text" value={settings.receipt_title || ""} onChange={(e) => setSettings({...settings, receipt_title: e.target.value})} className="w-full p-3 border border-gray-300 rounded-xl outline-none" /></div>
@@ -222,8 +211,8 @@ export default function SettingsPage() {
             <p className="text-gray-600 text-sm mb-4">พิมพ์คำว่า <span className="font-bold text-red-600">ยืนยัน</span> ในช่องด้านล่างเพื่อดำเนินการ</p>
             <input type="text" value={resetConfirmText} onChange={(e) => setResetConfirmText(e.target.value)} placeholder="พิมพ์ ยืนยัน" className="w-full p-3 border-2 border-red-300 rounded-xl text-center font-bold text-lg outline-none focus:border-red-500 mb-4" />
             <div className="flex gap-3">
-              <button onClick={() => setShowResetModal(false)} className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">ยกเลิก</button>
-              <button onClick={handleFactoryReset} disabled={isResetting} className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl shadow-lg hover:bg-red-700 disabled:bg-red-400">{isResetting ? "กำลังล้าง..." : "ตกลงล้างข้อมูล"}</button>
+              <button onClick={() => setShowResetModal(false)} className="cursor-pointer flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">ยกเลิก</button>
+              <button onClick={handleFactoryReset} disabled={isResetting} className="cursor-pointer flex-1 py-3 bg-red-600 text-white font-bold rounded-xl shadow-lg hover:bg-red-700 disabled:bg-red-400">{isResetting ? "กำลังล้าง..." : "ตกลงล้างข้อมูล"}</button>
             </div>
           </div>
         </div>
