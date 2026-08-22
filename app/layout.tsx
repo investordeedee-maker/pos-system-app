@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "JEARPOS", // ชื่อที่จะแสดงใต้ไอคอนบน iOS
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
   },
   icons: {
     icon: "/logo.png",
